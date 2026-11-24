@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trend-pos-clean-v1';
+const CACHE_NAME = 'trend-pos-clean-v2';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-512.png'];
 
 self.addEventListener('install', e => {
