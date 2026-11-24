@@ -32,6 +32,7 @@
         html, body {
             background-color: var(--bg-black); color: var(--white); min-height: 100vh;
             width: 100%; max-width: 100vw; overflow-x: hidden; padding-bottom: 84px;
+            overscroll-behavior-y: contain;
         }
 
         .btn {
@@ -139,11 +140,13 @@
             background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
             padding: 16px 10px; text-align: center; cursor: pointer;
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            min-height: 95px; width: 100%; word-break: break-word;
+            min-height: 95px; width: 100%; word-break: break-word; position: relative;
         }
+        .product-card.bundle-card { border-color: var(--gold); background: linear-gradient(145deg, #241e14, #1a1a1a); }
         .product-card:active { border-color: var(--gold); background: #262626; transform: scale(0.97); }
-        .product-name { font-size: 15px; font-weight: 800; margin-bottom: 8px; line-height: 1.35; }
+        .product-name { font-size: 15px; font-weight: 800; margin-bottom: 6px; line-height: 1.35; }
         .product-price { color: var(--gold); font-size: 15px; font-weight: 900; }
+        .bundle-tag { font-size: 10px; background: var(--gold); color: #000; padding: 2px 7px; border-radius: 6px; font-weight: 900; margin-bottom: 4px; }
 
         .cart-box {
             background: var(--bg-surface); border: 1px solid var(--bronze); border-radius: 16px;
@@ -191,7 +194,7 @@
         .modal.open { display: flex; }
         .modal-dialog {
             background: var(--bg-surface); border: 1.5px solid var(--gold); border-radius: 16px;
-            width: 100%; max-width: 480px; padding: 18px; margin: auto 0;
+            width: 100%; max-width: 500px; padding: 18px; margin: auto 0;
             box-shadow: 0 10px 30px rgba(0,0,0,0.9);
         }
         .modal-head {
@@ -277,7 +280,6 @@
     <main>
         <!-- ===== 1. شاشة المبيعات (POS) ===== -->
         <section id="view-pos" class="view-section active">
-            <!-- تنبيهات نقص المخزون القابلة للإغلاق -->
             <div id="homeLowStockAlerts"></div>
 
             <div class="pos-layout">
@@ -301,19 +303,25 @@
                             </select>
                         </div>
                         <div>
-                            <label>العرض / الخصم</label>
+                            <label>العرض / الخصم اليدوي</label>
                             <select id="offerSelect" onchange="recalculateCart()">
-                                <option value="">بدون عرض</option>
+                                <option value="">تلقائي / بدون عرض</option>
                             </select>
                         </div>
                     </div>
 
                     <div id="paymentMethodWrapper">
                         <label>طريقة الدفع (للطلب السفري)</label>
-                        <select id="posPayMethod">
+                        <select id="posPayMethod" onchange="toggleCreditCustomerSelect()">
                             <option value="CASH">💵 نقداً (صندوق المحل)</option>
                             <option value="WALLET">📱 محفظة إلكترونية (كريمي / جوالي / ون كاش...)</option>
+                            <option value="CREDIT">📒 بيع آجل (دين على زبون مخصص)</option>
                         </select>
+                    </div>
+
+                    <div id="creditCustomerWrapper" style="display:none; background:var(--bg-card); padding:10px; border-radius:10px; border:1px solid var(--warning);">
+                        <label style="color:var(--warning);">اختر الزبون المعتمد للدين</label>
+                        <select id="posCreditCustomerSelect"></select>
                     </div>
 
                     <div id="deliveryFields" style="display:none; background:var(--bg-card); padding:10px; border-radius:10px;">
@@ -335,7 +343,7 @@
 
                     <div style="border-top:1px solid var(--border); padding-top:10px; display:flex; flex-direction:column; gap:6px; font-size:14px;">
                         <div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>المجموع:</span><span id="cartSubtotal">0 ريال</span></div>
-                        <div style="display:flex; justify-content:space-between; color:var(--success);"><span>الخصم:</span><span id="cartDiscount">0 ريال</span></div>
+                        <div style="display:flex; justify-content:space-between; color:var(--success);"><span>الخصم والعروض:</span><span id="cartDiscount">0 ريال</span></div>
                         <div style="display:flex; justify-content:space-between; color:var(--text-muted);"><span>التوصيل:</span><span id="cartDeliveryFee">0 ريال</span></div>
                         <div style="display:flex; justify-content:space-between; color:var(--gold); font-size:19px; font-weight:900; padding-top:6px; border-top:1px dashed var(--border);">
                             <span>الإجمالي النهائي:</span><span id="cartTotal">0 ريال</span>
@@ -347,20 +355,36 @@
             </div>
         </section>
 
-        <!-- ===== 2. شاشة الفواتير (بيع + شراء + معلقة) ===== -->
+        <!-- ===== 2. شاشة الفواتير والديون ===== -->
         <section id="view-orders" class="view-section">
             <div class="sub-nav">
                 <button class="sub-btn active" onclick="switchInvoicesTab('sales', this)">🧾 فواتير البيع والتوصيل</button>
-                <button class="sub-btn" onclick="switchInvoicesTab('purchases', this)">🛒 فواتير الشراء والمشتريات</button>
+                <button class="sub-btn" onclick="switchInvoicesTab('credits', this)">📒 ديون الزبائن</button>
+                <button class="sub-btn" onclick="switchInvoicesTab('purchases', this)">🛒 فواتير الشراء والموردين</button>
             </div>
 
             <div id="inv-tab-sales">
                 <div class="card">
-                    <div class="card-top"><h3>سجل فواتير البيع (والمعلقة للتوصيل)</h3></div>
+                    <div class="card-top"><h3>سجل فواتير البيع (والمعلقة للتوصيل والآجل)</h3></div>
                     <div class="table-wrap">
                         <table>
                             <thead><tr><th>#</th><th>الوقت</th><th>النوع</th><th>الدفع</th><th>الإجمالي</th><th>الحالة</th><th>الموظف</th><th>إجراء</th></tr></thead>
                             <tbody id="invoicesTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="inv-tab-credits" style="display:none;">
+                <div class="card">
+                    <div class="card-top">
+                        <h3>حسابات الزبائن المعتمدين للدين</h3>
+                        <button class="btn btn-gold btn-sm" onclick="openModal('creditCustomerModal')">+ إضافة زبون للدين</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>اسم الزبون</th><th>الهاتف</th><th>إجمالي الدين المتبقي</th><th>إجراء</th></tr></thead>
+                            <tbody id="creditCustomersTableBody"></tbody>
                         </table>
                     </div>
                 </div>
@@ -371,7 +395,7 @@
                     <div class="card-top"><h3>سجل فواتير الشراء والمخزون</h3></div>
                     <div class="table-wrap">
                         <table>
-                            <thead><tr><th>التاريخ والوقت</th><th>المادة / البيان</th><th>المبلغ</th><th>مصدر الدفع</th><th>المشتري</th></tr></thead>
+                            <thead><tr><th>التاريخ والوقت</th><th>المادة / البيان</th><th>المبلغ</th><th>طريقة الدفع / المورد</th><th>المشتري</th></tr></thead>
                             <tbody id="purchaseInvoicesTableBody"></tbody>
                         </table>
                     </div>
@@ -387,9 +411,11 @@
                     <button class="btn btn-gold btn-sm" onclick="openShiftModal()">فتح / إغلاق وردية</button>
                 </div>
                 <div id="currentShiftBanner" style="margin-bottom:14px;"></div>
-                <div id="cashActionsRow" style="display:none; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+                <div id="cashActionsRow" style="display:none; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
                     <button class="btn btn-dark btn-sm" onclick="recordCashMove('DEPOSIT')">+ إضافة كاش للصندوق</button>
-                    <button class="btn btn-dark btn-sm" onclick="recordCashMove('WITHDRAWAL')">- سحب كاش من الصندوق</button>
+                    <button class="btn btn-dark btn-sm" onclick="recordCashMove('WITHDRAWAL')">- سحب كاش عام</button>
+                    <button class="btn btn-bronze btn-sm owner-only" onclick="openModal('ownerDrawModal')">👑 سحب للمالك</button>
+                    <button class="btn btn-info btn-sm" onclick="openStaffAdvanceModal()">👷 سلفة عامل من الراتب</button>
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -400,11 +426,11 @@
             </div>
         </section>
 
-        <!-- ===== 4. شاشة العمليات اليومية ===== -->
+        <!-- ===== 4. شاشة العمليات اليومية والمخزون ===== -->
         <section id="view-operations" class="view-section">
             <div class="action-grid">
                 <button class="action-tile" style="border-color:var(--gold);" onclick="openStaffBuyModal()">
-                    <span>🛒</span>شراء نواقص للمخزون
+                    <span>🛒</span>شراء نواقص (كاش / آجل)
                 </button>
                 <button class="action-tile" style="border-color:var(--bronze);" onclick="openModal('prepModal')">
                     <span>🧆</span>تسجيل تحضير مطبخ
@@ -423,7 +449,7 @@
                     <div style="display:flex; gap:6px; flex-wrap:wrap;">
                         <button class="btn btn-gold btn-sm owner-only" onclick="openNewInvModal()">+ مادة خام</button>
                         <button class="btn btn-bronze btn-sm owner-only" onclick="openNewPrepRecipeModal()">+ وصفة تحضير</button>
-                        <button class="btn btn-dark btn-sm owner-only" onclick="openModal('invCountModal')">جرد فعلي</button>
+                        <button class="btn btn-info btn-sm owner-only" onclick="openFullInventoryModal()">📋 جرد شامل كامل</button>
                     </div>
                 </div>
                 <div class="table-wrap">
@@ -453,10 +479,11 @@
                 <button class="sub-btn active" onclick="switchOwnerTab('reports', this)">التقارير والأرباح</button>
                 <button class="sub-btn" onclick="switchOwnerTab('analytics', this)">الإحصائيات وكشف التلاعب</button>
                 <button class="sub-btn" onclick="switchOwnerTab('products', this)">المنتجات والوجبات</button>
+                <button class="sub-btn" onclick="switchOwnerTab('suppliers', this)">الموردون والآجل</button>
                 <button class="sub-btn" onclick="switchOwnerTab('fixedcosts', this)">تكاليف التشغيل الثابتة</button>
                 <button class="sub-btn" onclick="switchOwnerTab('expcats', this)">تصنيفات المصروفات</button>
-                <button class="sub-btn" onclick="switchOwnerTab('delivery', this)">التوصيل والعروض</button>
-                <button class="sub-btn" onclick="switchOwnerTab('staff', this)">الموظفون وحساب المالك</button>
+                <button class="sub-btn" onclick="switchOwnerTab('delivery', this)">التوصيل والعروض والباقات</button>
+                <button class="sub-btn" onclick="switchOwnerTab('staff', this)">الموظفون والسلف</button>
                 <button class="sub-btn" onclick="switchOwnerTab('audit', this)">السحابة والنسخ الاحتياطي</button>
             </div>
 
@@ -472,7 +499,7 @@
                             <select id="reportPeriod" style="width:auto; padding:8px;" onchange="renderOwnerDashboard()">
                                 <option value="TODAY">اليوم</option>
                                 <option value="WEEK">آخر 7 أيام</option>
-                                <option value="MONTH">هذا الشهر</option>
+                                <option value="MONTH">هذا الشهر (شامل الثابتة)</option>
                                 <option value="ALL">الكل</option>
                             </select>
                             <button class="btn btn-dark btn-sm" onclick="exportReportCSV()">CSV</button>
@@ -488,8 +515,10 @@
                 </div>
             </div>
 
-            <!-- 5.2 الإحصائيات المتقدمة وكشف التلاعب والسرقة -->
+            <!-- 5.2 الإحصائيات المتقدمة وكشف التلاعب -->
             <div id="owner-tab-analytics" class="owner-subview">
+                <div class="kpi-grid" id="advancedStatsKpis"></div>
+
                 <div class="card" style="border-color:var(--danger);">
                     <div class="card-top">
                         <h3 style="color:var(--danger);">🛡️ نظام الرقابة الذكي وكشف التلاعب</h3>
@@ -505,6 +534,17 @@
                     <div class="card">
                         <div class="card-top"><h3>❄️ الأقل مبيعاً</h3></div>
                         <div id="leastSellingList" style="font-size:13px; display:flex; flex-direction:column; gap:8px;"></div>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-top"><h3>⏰ أوقات الذروة (الساعات)</h3></div>
+                        <div id="peakHoursList" style="font-size:13px; display:flex; flex-direction:column; gap:8px;"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-top"><h3>💳 توزيع طرق الدفع</h3></div>
+                        <div id="paymentBreakdownList" style="font-size:13px; display:flex; flex-direction:column; gap:8px;"></div>
                     </div>
                 </div>
 
@@ -538,39 +578,42 @@
                 </div>
             </div>
 
-            <!-- 5.4 تكاليف التشغيل الثابتة (من تاريخ الافتتاح) -->
-            <div id="owner-tab-fixedcosts" class="owner-subview">
+            <!-- 5.4 الموردون والمشتريات الآجلة -->
+            <div id="owner-tab-suppliers" class="owner-subview">
                 <div class="card">
                     <div class="card-top">
-                        <h3>تاريخ بدء التشغيل الفعلي للمحل</h3>
+                        <h3>إدارة الموردين والمستحقات الآجلة</h3>
+                        <button class="btn btn-gold btn-sm" onclick="openModal('supplierModal')">+ إضافة مورد جديد</button>
                     </div>
-                    <div class="grid-2" style="align-items:end;">
-                        <div>
-                            <label>تاريخ افتتاح المحل (لا تُحسب تكاليف قبله)</label>
-                            <input type="date" id="shopOpeningDateInput">
-                        </div>
-                        <button class="btn btn-bronze" onclick="saveShopOpeningDate()">حفظ تاريخ الافتتاح</button>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>اسم المورد</th><th>الهاتف / النشاط</th><th>الرصيد المستحق له (آجل)</th><th>إجراء</th></tr></thead>
+                            <tbody id="suppliersTableBody"></tbody>
+                        </table>
                     </div>
                 </div>
+            </div>
 
+            <!-- 5.5 تكاليف التشغيل الثابتة (تخصم نهاية الشهر فقط) -->
+            <div id="owner-tab-fixedcosts" class="owner-subview">
                 <div class="card">
                     <div class="card-top">
                         <h3>تكاليف التشغيل الثابتة الشهرية</h3>
                         <button class="btn btn-gold btn-sm" onclick="openModal('fixedCostModal')">+ إضافة تكلفة ثابتة</button>
                     </div>
-                    <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">
-                        يُقسم إجمالي التكاليف الشهرية على 30 يوماً، ويُخصم نصيب كل يوم فقط ابتداءً من تاريخ افتتاح المحل المحدد أعلاه.
+                    <p style="font-size:13px; color:var(--gold-light); margin-bottom:12px;">
+                        * لا تُخصم التكاليف الثابتة من أرباح اليوم أو الأسبوع؛ بل تُخصم كاملة مرة واحدة في نهاية الشهر (عند عرض تقرير "هذا الشهر").
                     </p>
                     <div class="table-wrap">
                         <table>
-                            <thead><tr><th>البند</th><th>المبلغ الشهري</th><th>النصيب اليومي</th><th>تحكم</th></tr></thead>
+                            <thead><tr><th>البند</th><th>المبلغ الشهري</th><th>تحكم</th></tr></thead>
                             <tbody id="fixedCostsTableBody"></tbody>
                         </table>
                     </div>
                 </div>
             </div>
 
-            <!-- 5.5 تصنيفات المصروفات -->
+            <!-- 5.6 تصنيفات المصروفات -->
             <div id="owner-tab-expcats" class="owner-subview">
                 <div class="card">
                     <div class="card-top">
@@ -586,8 +629,34 @@
                 </div>
             </div>
 
-            <!-- 5.6 التوصيل والعروض -->
+            <!-- 5.7 التوصيل والعروض والباقات -->
             <div id="owner-tab-delivery" class="owner-subview">
+                <div class="card">
+                    <div class="card-top">
+                        <h3>العروض والخصومات (خصم % / اشترِ X واحصل على Y)</h3>
+                        <button class="btn btn-gold btn-sm" onclick="openOfferModal()">+ عرض خصم جديد</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>العرض</th><th>النوع</th><th>التفاصيل</th><th>الحالة</th><th>تحكم</th></tr></thead>
+                            <tbody id="offersTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-top">
+                        <h3>الباقات والوجبات المجمعة (كومبو)</h3>
+                        <button class="btn btn-gold btn-sm" onclick="openBundleModal()">+ باقة / كومبو جديد</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>اسم الباقة</th><th>المكونات</th><th>سعر الباقة</th><th>الحالة</th><th>تحكم</th></tr></thead>
+                            <tbody id="bundlesTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="card-top">
                         <h3>مناطق التوصيل وسياسة TREND</h3>
@@ -605,23 +674,36 @@
                         </table>
                     </div>
                 </div>
+            </div>
 
+            <!-- 5.8 الموظفون والسلف وحساب المالك -->
+            <div id="owner-tab-staff" class="owner-subview">
                 <div class="card">
                     <div class="card-top">
-                        <h3>العروض والخصومات</h3>
-                        <button class="btn btn-gold btn-sm" onclick="openModal('offerModal')">+ عرض جديد</button>
+                        <h3>حسابات الموظفين والسلف المسحوبة</h3>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn btn-info btn-sm" onclick="openStaffAdvanceModal()">+ تسجيل سلفة</button>
+                            <button class="btn btn-gold btn-sm" onclick="openModal('userModal')">+ إضافة موظف</button>
+                        </div>
                     </div>
                     <div class="table-wrap">
                         <table>
-                            <thead><tr><th>العرض</th><th>النوع</th><th>القيمة</th><th>الحالة</th></tr></thead>
-                            <tbody id="offersTableBody"></tbody>
+                            <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>إجمالي السلف المسحوبة</th><th>الحالة</th><th>تحكم</th></tr></thead>
+                            <tbody id="usersTableBody"></tbody>
                         </table>
                     </div>
                 </div>
-            </div>
 
-            <!-- 5.7 الموظفون وحساب المالك -->
-            <div id="owner-tab-staff" class="owner-subview">
+                <div class="card">
+                    <div class="card-top"><h3>سجل سحبيات وسلف العمال ومسحوبات المالك</h3></div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>التاريخ</th><th>النوع</th><th>الاسم</th><th>المبلغ</th><th>المصدر</th><th>ملاحظة</th></tr></thead>
+                            <tbody id="advancesAndDrawsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="card-top"><h3>تعديل بيانات دخول المالك</h3></div>
                     <div class="grid-2">
@@ -630,28 +712,16 @@
                     </div>
                     <button class="btn btn-gold w-100" onclick="updateOwnerCredentials()">تحديث بيانات المالك</button>
                 </div>
-
-                <div class="card">
-                    <div class="card-top">
-                        <h3>حسابات الموظفين</h3>
-                        <button class="btn btn-gold btn-sm" onclick="openModal('userModal')">+ إضافة موظف</button>
-                    </div>
-                    <div class="table-wrap">
-                        <table>
-                            <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الحالة</th><th>تحكم</th></tr></thead>
-                            <tbody id="usersTableBody"></tbody>
-                        </table>
-                    </div>
-                </div>
             </div>
 
-            <!-- 5.8 السحابة والنسخ الاحتياطي -->
+            <!-- 5.9 السحابة والنسخ الاحتياطي -->
             <div id="owner-tab-audit" class="owner-subview">
                 <div class="card">
-                    <div class="card-top"><h3>☁ المزامنة السحابية والنسخ الاحتياطي</h3></div>
+                    <div class="card-top"><h3>☁ المزامنة السحابية وتحديث التطبيق</h3></div>
                     <div style="display:flex; flex-direction:column; gap:10px;">
                         <div id="cloudSyncStatusText" style="font-size:13px; color:var(--gold); text-align:center; padding:8px; background:var(--bg-card); border-radius:8px; border:1px solid var(--bronze);">جاري الاتصال بسحابة TREND...</div>
                         <button class="btn btn-bronze w-100" onclick="syncAllLocalToCloudNow()">↻ مزامنة ورفع البيانات المحلية للسحابة الآن</button>
+                        <button class="btn btn-info w-100" onclick="forceReloadAppUI()">🔄 تحديث واجهة التطبيق (جلب آخر التعديلات)</button>
                         <button class="btn btn-gold w-100" onclick="downloadBackupJSON()">⬇ تنزيل نسخة احتياطية كاملة (JSON)</button>
                         <label class="btn btn-dark w-100" style="cursor:pointer; text-align:center;">
                             ⬆ استعادة البيانات من ملف نسخة احتياطية
@@ -678,11 +748,11 @@
 
 <!-- ==================== النوافذ المنبثقة (Modals) ==================== -->
 
-<!-- نافذة تحصيل فاتورة توصيل معلقة -->
+<!-- نافذة تحصيل فاتورة معلقة (توصيل أو دين زبون) -->
 <div class="modal" id="collectDeliveryModal">
     <div class="modal-dialog">
         <div class="modal-head">
-            <h3>💰 تأكيد استلام مبلغ التوصيل</h3>
+            <h3>💰 تأكيد استلام مبلغ فاتورة</h3>
             <button class="close-x" onclick="closeModal('collectDeliveryModal')">✕</button>
         </div>
         <input type="hidden" id="collectInvId">
@@ -698,7 +768,7 @@
     </div>
 </div>
 
-<!-- نافذة شراء نواقص للمخزون -->
+<!-- نافذة شراء نواقص للمخزون (كاش / محفظة / آجل لمورد) -->
 <div class="modal" id="staffBuyModal">
     <div class="modal-dialog">
         <div class="modal-head">
@@ -723,19 +793,197 @@
             الكمية التي ستُضاف للمخزون: 0
         </div>
         <div class="form-group">
-            <label id="buyTotalCostLabel">المبلغ الإجمالي المدفوع (ريال)</label>
+            <label id="buyTotalCostLabel">المبلغ الإجمالي (ريال)</label>
             <input type="text" inputmode="numeric" id="buyTotalCost" oninput="handleBuyQtyOrPriceInput()">
         </div>
         <div class="form-group">
             <label>طريقة الدفع</label>
-            <select id="buyPaySource">
+            <select id="buyPaySource" onchange="toggleBuySupplierSelect()">
                 <option value="SHIFT_CASH">💵 نقداً من صندوق الوردية</option>
                 <option value="WALLET">📱 من المحفظة الإلكترونية</option>
                 <option value="OWNER_ACCOUNT">👑 من حساب المالك الخاص (خارج الصندوق)</option>
+                <option value="SUPPLIER_CREDIT">📒 شراء آجل (دين على المحل للمورد)</option>
             </select>
+        </div>
+        <div class="form-group" id="buySupplierWrapper" style="display:none; background:var(--bg-card); padding:10px; border-radius:10px; border:1px solid var(--warning);">
+            <label style="color:var(--warning);">اختر المورد</label>
+            <select id="buySupplierSelect"></select>
         </div>
         <div class="form-group"><label>ملاحظات (اختياري)</label><input type="text" id="buyNotes"></div>
         <button class="btn btn-gold w-100" onclick="confirmStaffPurchase()">تأكيد الشراء وإضافة للمخزون</button>
+    </div>
+</div>
+
+<!-- نافذة الجرد الشامل الكامل -->
+<div class="modal" id="fullInventoryModal">
+    <div class="modal-dialog" style="max-width:600px;">
+        <div class="modal-head">
+            <h3>📋 الجرد الشامل لجميع أصناف المخزون</h3>
+            <button class="close-x" onclick="closeModal('fullInventoryModal')">✕</button>
+        </div>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+            أدخل الكمية الفعلية الموجودة في المحل لكل صنف (اترك الخانة فارغة للصنف الذي لا تريد تعديله).
+        </p>
+        <div class="table-wrap" style="max-height:360px; margin-bottom:12px;">
+            <table>
+                <thead><tr><th>الصنف</th><th>الرصيد بالنظام</th><th>الفعلي بالمخزن</th><th>الفرق</th></tr></thead>
+                <tbody id="fullInvCountBody"></tbody>
+            </table>
+        </div>
+        <div class="form-group"><label>ملاحظات الجرد الشامل</label><input type="text" id="fullInvNotes" placeholder="مثال: جرد نهاية الأسبوع"></div>
+        <button class="btn btn-gold w-100" onclick="saveFullInventoryCount()">✓ اعتماد وتسوية الجرد الشامل</button>
+    </div>
+</div>
+
+<!-- نافذة سلفة عامل من الراتب -->
+<div class="modal" id="staffAdvanceModal">
+    <div class="modal-dialog">
+        <div class="modal-head">
+            <h3>👷 تسجيل سلفة / سحب من راتب عامل</h3>
+            <button class="close-x" onclick="closeModal('staffAdvanceModal')">✕</button>
+        </div>
+        <div class="form-group">
+            <label>اختر العامل</label>
+            <select id="advStaffSelect"></select>
+        </div>
+        <div class="grid-2">
+            <div class="form-group">
+                <label>مبلغ السلفة (ريال)</label>
+                <input type="text" inputmode="numeric" id="advAmount" placeholder="0">
+            </div>
+            <div class="form-group">
+                <label>مصدر الصرف</label>
+                <select id="advSource">
+                    <option value="SHIFT_CASH">💵 من صندوق الوردية</option>
+                    <option value="WALLET">📱 من المحفظة</option>
+                    <option value="OWNER_ACCOUNT">👑 من المالك مباشرة</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group"><label>ملاحظة</label><input type="text" id="advNote" placeholder="سلفة من الراتب"></div>
+        <button class="btn btn-info w-100" onclick="confirmStaffAdvance()">تأكيد صرف السلفة</button>
+    </div>
+</div>
+
+<!-- نافذة سحب للمالك -->
+<div class="modal" id="ownerDrawModal">
+    <div class="modal-dialog">
+        <div class="modal-head">
+            <h3>👑 تسجيل سحب نقدي للمالك</h3>
+            <button class="close-x" onclick="closeModal('ownerDrawModal')">✕</button>
+        </div>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+            يُخصم المبلغ من كاش الصندوق الفعلي في الوردية، ولا يُحتسب كمصروف تشغيلي على أرباح المطعم.
+        </p>
+        <div class="form-group"><label>المبلغ المسحوب (ريال)</label><input type="text" inputmode="numeric" id="ownerDrawAmount" placeholder="0"></div>
+        <div class="form-group"><label>البيان / السبب</label><input type="text" id="ownerDrawNote" placeholder="سحب شخصي للمالك"></div>
+        <button class="btn btn-gold w-100" onclick="confirmOwnerDraw()">تأكيد سحب المالك</button>
+    </div>
+</div>
+
+<!-- نافذة إضافة مورد + سداد مورد -->
+<div class="modal" id="supplierModal">
+    <div class="modal-dialog">
+        <div class="modal-head"><h3>إضافة مورد جديد</h3><button class="close-x" onclick="closeModal('supplierModal')">✕</button></div>
+        <div class="form-group"><label>اسم المورد / المحل</label><input type="text" id="supName" placeholder="مثال: بقالة الأمانة - مورد الزيت"></div>
+        <div class="form-group"><label>رقم الهاتف / ملاحظة</label><input type="text" id="supPhone"></div>
+        <button class="btn btn-gold w-100" onclick="saveSupplier()">حفظ المورد</button>
+    </div>
+</div>
+
+<div class="modal" id="paySupplierModal">
+    <div class="modal-dialog">
+        <div class="modal-head"><h3>سداد دفعة لمورد</h3><button class="close-x" onclick="closeModal('paySupplierModal')">✕</button></div>
+        <input type="hidden" id="paySupId">
+        <div id="paySupInfo" style="background:var(--bg-card); padding:10px; border-radius:8px; margin-bottom:12px;"></div>
+        <div class="form-group"><label>المبلغ المدفوع للمورد (ريال)</label><input type="text" inputmode="numeric" id="paySupAmount"></div>
+        <div class="form-group">
+            <label>مصدر السداد</label>
+            <select id="paySupSource">
+                <option value="SHIFT_CASH">💵 من صندوق الوردية</option>
+                <option value="WALLET">📱 من المحفظة الإلكترونية</option>
+                <option value="OWNER_ACCOUNT">👑 من حساب المالك الخاص</option>
+            </select>
+        </div>
+        <button class="btn btn-success w-100" onclick="confirmPaySupplier()">تأكيد السداد</button>
+    </div>
+</div>
+
+<!-- نافذة إضافة زبون للدين + سداد دين زبون -->
+<div class="modal" id="creditCustomerModal">
+    <div class="modal-dialog">
+        <div class="modal-head"><h3>إضافة زبون مخصص للدين</h3><button class="close-x" onclick="closeModal('creditCustomerModal')">✕</button></div>
+        <div class="form-group"><label>اسم الزبون</label><input type="text" id="credCustName" placeholder="مثال: محمد - محل الجوار"></div>
+        <div class="form-group"><label>رقم الهاتف</label><input type="tel" id="credCustPhone"></div>
+        <button class="btn btn-gold w-100" onclick="saveCreditCustomer()">حفظ الزبون</button>
+    </div>
+</div>
+
+<div class="modal" id="payCreditCustomerModal">
+    <div class="modal-dialog">
+        <div class="modal-head"><h3>تسجيل سداد دين من زبون</h3><button class="close-x" onclick="closeModal('payCreditCustomerModal')">✕</button></div>
+        <input type="hidden" id="payCredCustId">
+        <div id="payCredCustInfo" style="background:var(--bg-card); padding:10px; border-radius:8px; margin-bottom:12px;"></div>
+        <div class="form-group"><label>المبلغ المستلم من الزبون (ريال)</label><input type="text" inputmode="numeric" id="payCredAmount"></div>
+        <div class="form-group">
+            <label>أين تم إيداع المبلغ؟</label>
+            <select id="payCredMethod">
+                <option value="CASH">💵 نقداً في صندوق الوردية</option>
+                <option value="WALLET">📱 في المحفظة الإلكترونية</option>
+            </select>
+        </div>
+        <button class="btn btn-success w-100" onclick="confirmPayCreditCustomer()">✓ استلام المبلغ وتخفيض الدين</button>
+    </div>
+</div>
+
+<!-- نافذة إضافة عرض (خصم % / ثابت / اشترِ X واحصل على Y) -->
+<div class="modal" id="offerModal">
+    <div class="modal-dialog">
+        <div class="modal-head"><h3>إضافة عرض / خصم</h3><button class="close-x" onclick="closeModal('offerModal')">✕</button></div>
+        <div class="form-group"><label>اسم العرض</label><input type="text" id="offerName" placeholder="مثال: اشترِ 2 فلافل واحصل على 3 مجاناً"></div>
+        <div class="form-group">
+            <label>نوع العرض</label>
+            <select id="offerType" onchange="toggleOfferTypeFields()">
+                <option value="PERCENT">نسبة مئوية على الفاتورة (%)</option>
+                <option value="FIXED">مبلغ ثابت على الفاتورة (ريال)</option>
+                <option value="BOGO">اشترِ وجبتين واحصل على الثالثة مجاناً (X + Y)</option>
+            </select>
+        </div>
+        <div id="offerStandardFields">
+            <div class="grid-2">
+                <div class="form-group"><label>قيمة الخصم</label><input type="text" inputmode="numeric" id="offerVal"></div>
+                <div class="form-group"><label>الحد الأدنى للطلب</label><input type="text" inputmode="numeric" id="offerMinOrder" value="0"></div>
+            </div>
+        </div>
+        <div id="offerBogoFields" style="display:none; background:var(--bg-card); padding:10px; border-radius:10px; margin-bottom:12px;">
+            <div class="form-group">
+                <label>اختر الوجبة المشمولة بالعرض</label>
+                <select id="offerBogoProduct"></select>
+            </div>
+            <div class="grid-2">
+                <div class="form-group"><label>الكمية المدفوعة (اشترِ)</label><input type="text" inputmode="numeric" id="offerBuyQty" value="2"></div>
+                <div class="form-group"><label>الكمية المجانية (احصل على)</label><input type="text" inputmode="numeric" id="offerFreeQty" value="1"></div>
+            </div>
+        </div>
+        <button class="btn btn-gold w-100" onclick="saveOffer()">تفعيل العرض</button>
+    </div>
+</div>
+
+<!-- نافذة إنشاء باقة / وجبات مجمعة (كومبو) -->
+<div class="modal" id="bundleModal">
+    <div class="modal-dialog">
+        <div class="modal-head"><h3>إنشاء باقة / وجبة مجمعة (كومبو)</h3><button class="close-x" onclick="closeModal('bundleModal')">✕</button></div>
+        <div class="form-group"><label>اسم الباقة (مثال: بوكس الأصدقاء - 3 فلافل + 1 عربي + 2 عصير)</label><input type="text" id="bundleName"></div>
+        <div style="background:var(--bg-card); padding:10px; border-radius:10px; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <strong style="color:var(--gold); font-size:13px;">الوجبات داخل الباقة</strong>
+                <button type="button" class="btn btn-dark btn-sm" onclick="addBundleItemRow()">+ إضافة وجبة</button>
+            </div>
+            <div id="bundleRowsContainer" style="display:flex; flex-direction:column; gap:8px;"></div>
+            <div id="bundleOrigTotalText" style="margin-top:8px; font-size:13px; color:var(--text-muted);">السعر الأصلي لمكونات الباقة: 0 ريال</div>
+        </div>
+        <div class="form-group"><label>سعر بيع الباقة النهائي (ريال)</label><input type="text" inputmode="numeric" id="bundlePrice" placeholder="مثال: 1500"></div>
+        <button class="btn btn-gold w-100" onclick="saveBundle()">حفظ وتفعيل الباقة في الكاشير</button>
     </div>
 </div>
 
@@ -922,19 +1170,6 @@
     </div>
 </div>
 
-<div class="modal" id="invCountModal">
-    <div class="modal-dialog">
-        <div class="modal-head"><h3>تسجيل جرد فعلي</h3><button class="close-x" onclick="closeModal('invCountModal')">✕</button></div>
-        <div class="form-group"><label>اختر المادة</label><select id="countInvSelect" onchange="updateTheoreticalDisplay()"></select></div>
-        <div style="background:var(--bg-card); padding:12px; border-radius:8px; margin-bottom:12px;">
-            الكمية المسجلة في النظام: <strong style="color:var(--gold)" id="theoreticalQtyText">0</strong>
-        </div>
-        <div class="form-group"><label>الكمية الفعلية الموجودة</label><input type="text" inputmode="decimal" id="actualCountQty" placeholder="أدخل العدد الفعلي"></div>
-        <div class="form-group"><label>سبب الفرق (إن وجد)</label><input type="text" id="countReason"></div>
-        <button class="btn btn-gold w-100" onclick="saveInventoryCount()">اعتماد الجرد</button>
-    </div>
-</div>
-
 <div class="modal" id="wasteModal">
     <div class="modal-dialog">
         <div class="modal-head"><h3 style="color:var(--danger)">تسجيل هدر / تلف</h3><button class="close-x" onclick="closeModal('wasteModal')">✕</button></div>
@@ -974,22 +1209,6 @@
     </div>
 </div>
 
-<div class="modal" id="offerModal">
-    <div class="modal-dialog">
-        <div class="modal-head"><h3>إضافة عرض / خصم</h3><button class="close-x" onclick="closeModal('offerModal')">✕</button></div>
-        <div class="form-group"><label>اسم العرض</label><input type="text" id="offerName"></div>
-        <div class="grid-2">
-            <div class="form-group">
-                <label>نوع الخصم</label>
-                <select id="offerType"><option value="PERCENT">نسبة مئوية (%)</option><option value="FIXED">مبلغ ثابت (ريال)</option></select>
-            </div>
-            <div class="form-group"><label>قيمة الخصم</label><input type="text" inputmode="numeric" id="offerVal"></div>
-        </div>
-        <div class="form-group"><label>الحد الأدنى للطلب</label><input type="text" inputmode="numeric" id="offerMinOrder" value="0"></div>
-        <button class="btn btn-gold w-100" onclick="saveOffer()">تفعيل العرض</button>
-    </div>
-</div>
-
 <div class="modal" id="userModal">
     <div class="modal-dialog">
         <div class="modal-head"><h3>إضافة موظف جديد</h3><button class="close-x" onclick="closeModal('userModal')">✕</button></div>
@@ -1004,14 +1223,13 @@
 
 <script>
 const DB_NAME = 'TREND_PRODUCTION_CLEAN';
-const DB_VER = 1;
+const DB_VER = 2;
 let db = null;
 let currentUser = null;
 let selectedCategoryId = 'ALL';
 let cart = [];
 let dismissedAlerts = new Set();
 
-// إعدادات مشروع TREND السحابية المدمجة تلقائياً
 const EMBEDDED_FIREBASE_CONFIG = {
     apiKey: "AIzaSyBcdnHgdOhSP_815aYiuWAvzzXeNOYgjE4",
     authDomain: "trend-3bab8.firebaseapp.com",
@@ -1026,7 +1244,8 @@ let isSyncingFromCloud = false;
 const SYNC_COLLECTIONS = [
     'users', 'categories', 'products', 'recipes', 'inventory_items',
     'prep_recipes', 'waste_records', 'cash_sessions', 'cash_transactions',
-    'delivery_zones', 'offers', 'invoices', 'expenses', 'expense_categories',
+    'delivery_zones', 'offers', 'bundles', 'suppliers', 'credit_customers',
+    'staff_advances', 'owner_draws', 'invoices', 'expenses', 'expense_categories',
     'fixed_costs', 'audit_logs', 'settings'
 ];
 
@@ -1058,7 +1277,8 @@ function initDB() {
                 'users', 'categories', 'products', 'recipes',
                 'inventory_items', 'prep_recipes', 'inventory_transactions', 'waste_records',
                 'cash_sessions', 'cash_transactions', 'delivery_zones',
-                'offers', 'invoices', 'expenses', 'expense_categories', 'fixed_costs', 'audit_logs', 'settings'
+                'offers', 'bundles', 'suppliers', 'credit_customers', 'staff_advances', 'owner_draws',
+                'invoices', 'expenses', 'expense_categories', 'fixed_costs', 'audit_logs', 'settings'
             ];
             stores.forEach(s => { if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: 'id' }); });
         };
@@ -1163,6 +1383,13 @@ async function syncAllLocalToCloudNow() {
     alert('تمت مزامنة ورفع جميع البيانات المحلية إلى السحابة بنجاح!');
 }
 
+function forceReloadAppUI() {
+    if ('caches' in window) {
+        caches.keys().then(names => names.forEach(name => caches.delete(name)));
+    }
+    window.location.reload(true);
+}
+
 async function initFirebaseSync() {
     if (typeof firebase === 'undefined') return;
     try {
@@ -1212,7 +1439,7 @@ async function logAudit(action, entityType, entityId, details = '') {
     });
 }
 
-// ==================== تهيئة نسخة الإنتاج النظيفة المصفّرة ====================
+// ==================== تهيئة نسخة الإنتاج ====================
 async function seedDefaults() {
     const users = await dbGetAll('users');
     if (users.length > 0) return;
@@ -1228,12 +1455,10 @@ async function seedDefaults() {
         createdAt: Date.now()
     });
 
-    const todayStr = new Date().toISOString().slice(0, 10);
     const settings = [
         { id: 'free_delivery_threshold', value: 1000 },
         { id: 'default_delivery_fee', value: 200 },
-        { id: 'invoice_counter', value: 1000 },
-        { id: 'shop_opening_date', value: todayStr }
+        { id: 'invoice_counter', value: 1000 }
     ];
     for (const s of settings) await localDbPut('settings', s);
     await localDbPut('delivery_zones', { id: uuid(), name: 'هبرة وما جاورها', fee: 200, freeThreshold: 1000, isActive: true });
@@ -1280,7 +1505,7 @@ function buildBottomNav() {
     const isOwner = currentUser.role === 'OWNER';
     const items = [
         { id: 'pos', icon: '🧾', label: 'المبيعات', show: true },
-        { id: 'orders', icon: '📋', label: 'الفواتير', show: true },
+        { id: 'orders', icon: '📋', label: 'الفواتير والديون', show: true },
         { id: 'shifts', icon: '💰', label: 'الوردية', show: true },
         { id: 'operations', icon: '📦', label: 'المشتريات والمخزون', show: true },
         { id: 'owner', icon: '👑', label: 'إدارة المالك', show: isOwner }
@@ -1318,12 +1543,13 @@ function switchOwnerTab(tabName, btnEl) {
 
 function switchInvoicesTab(tabName, btnEl) {
     document.getElementById('inv-tab-sales').style.display = tabName === 'sales' ? 'block' : 'none';
+    document.getElementById('inv-tab-credits').style.display = tabName === 'credits' ? 'block' : 'none';
     document.getElementById('inv-tab-purchases').style.display = tabName === 'purchases' ? 'block' : 'none';
     btnEl.parentElement.querySelectorAll('.sub-btn').forEach(b => b.classList.remove('active'));
     btnEl.classList.add('active');
 }
 
-// ==================== شاشة المبيعات + تنبيهات نقص المخزون القابلة للإغلاق ====================
+// ==================== شاشة المبيعات + العروض والباقات ====================
 function dismissHomeAlert(itemId) {
     dismissedAlerts.add(itemId);
     renderHomeAlerts();
@@ -1335,7 +1561,7 @@ async function renderHomeAlerts() {
     if (!box) return;
     box.innerHTML = invItems.map(i => `
         <div class="home-alert-box">
-            <span>⚠️ نقص مخزون: <strong>${i.name}</strong> (المتبقي: ${i.currentQuantity} ${i.unit})</span>
+            <span>⚠️ تنبيه مخزون: <strong>${i.name}</strong> (المتبقي: ${i.currentQuantity} ${i.unit})</span>
             <button class="home-alert-close" onclick="dismissHomeAlert('${i.id}')" title="إخفاء التنبيه">✕</button>
         </div>
     `).join('');
@@ -1345,28 +1571,50 @@ async function renderPOS() {
     await renderHomeAlerts();
     const cats = (await dbGetAll('categories')).filter(c => c.isActive);
     const prods = (await dbGetAll('products')).filter(p => p.isActive && p.isAvailable);
-    const offers = (await dbGetAll('offers')).filter(o => o.isActive);
+    const bundles = (await dbGetAll('bundles')).filter(b => b.isActive);
+    const offers = (await dbGetAll('offers')).filter(o => o.isActive && o.type !== 'BOGO');
     const zones = (await dbGetAll('delivery_zones')).filter(z => z.isActive);
+    const credCusts = await dbGetAll('credit_customers');
 
     document.getElementById('posCategories').innerHTML =
         `<button class="cat-chip ${selectedCategoryId === 'ALL' ? 'active' : ''}" onclick="selectCategory('ALL')">الكل</button>` +
+        (bundles.length > 0 ? `<button class="cat-chip ${selectedCategoryId === 'BUNDLES' ? 'active' : ''}" onclick="selectCategory('BUNDLES')">🔥 العروض والباقات</button>` : '') +
         cats.map(c => `<button class="cat-chip ${selectedCategoryId === c.id ? 'active' : ''}" onclick="selectCategory('${c.id}')">${c.name}</button>`).join('');
 
-    const filtered = selectedCategoryId === 'ALL' ? prods : prods.filter(p => p.categoryId === selectedCategoryId);
-    document.getElementById('posProducts').innerHTML = filtered.length === 0
-        ? `<div style="grid-column:span 2; text-align:center; color:var(--text-muted); padding:24px; background:var(--bg-card); border-radius:12px;">لا توجد منتجات مضافة بعد. اذهب إلى <strong>إدارة المالك ← المنتجات والوجبات</strong> لإضافة منتجاتك.</div>`
-        : filtered.map(p => `
+    let cardsHtml = '';
+    if (selectedCategoryId === 'ALL' || selectedCategoryId === 'BUNDLES') {
+        cardsHtml += bundles.map(b => `
+            <div class="product-card bundle-card" onclick="quickAddBundle('${b.id}')">
+                <span class="bundle-tag">باقة عرض 🔥</span>
+                <div class="product-name">${b.name}</div>
+                <div class="product-price">${b.price} ريال</div>
+            </div>
+        `).join('');
+    }
+
+    if (selectedCategoryId !== 'BUNDLES') {
+        const filtered = selectedCategoryId === 'ALL' ? prods : prods.filter(p => p.categoryId === selectedCategoryId);
+        cardsHtml += filtered.map(p => `
             <div class="product-card" onclick="quickAddProduct('${p.id}')">
                 <div class="product-name">${p.name}</div>
                 <div class="product-price">${p.price} ريال</div>
             </div>
         `).join('');
+    }
 
-    document.getElementById('offerSelect').innerHTML = `<option value="">بدون عرض</option>` +
+    document.getElementById('posProducts').innerHTML = cardsHtml === ''
+        ? `<div style="grid-column:span 2; text-align:center; color:var(--text-muted); padding:24px; background:var(--bg-card); border-radius:12px;">لا توجد منتجات مضافة بعد.</div>`
+        : cardsHtml;
+
+    document.getElementById('offerSelect').innerHTML = `<option value="">تلقائي / بدون خصم إضافي</option>` +
         offers.map(o => `<option value="${o.id}">${o.name} (${o.type === 'PERCENT' ? o.value + '%' : o.value + ' ريال'})</option>`).join('');
 
     document.getElementById('deliveryZoneSelect').innerHTML =
         zones.map(z => `<option value="${z.id}">${z.name} (${z.fee} ريال)</option>`).join('');
+
+    document.getElementById('posCreditCustomerSelect').innerHTML = credCusts.length === 0
+        ? `<option value="">أضف زبوناً للدين من تبويب الفواتير والديون أولاً</option>`
+        : credCusts.map(c => `<option value="${c.id}">${c.name} (الدين الحالي: ${c.balance || 0} ريال)</option>`).join('');
 
     await recalculateCart();
 }
@@ -1376,10 +1624,11 @@ function selectCategory(catId) { selectedCategoryId = catId; renderPOS(); }
 async function quickAddProduct(prodId) {
     const prod = await dbGet('products', prodId);
     if (!prod) return;
-    const existing = cart.find(i => i.productId === prod.id);
+    const existing = cart.find(i => !i.isBundle && i.productId === prod.id);
     if (existing) existing.quantity += 1;
     else {
         cart.push({
+            isBundle: false,
             productId: prod.id,
             name: prod.name,
             unitPrice: Number(prod.price),
@@ -1390,10 +1639,29 @@ async function quickAddProduct(prodId) {
     recalculateCart();
 }
 
+async function quickAddBundle(bundleId) {
+    const b = await dbGet('bundles', bundleId);
+    if (!b) return;
+    const existing = cart.find(i => i.isBundle && i.bundleId === b.id);
+    if (existing) existing.quantity += 1;
+    else {
+        cart.push({
+            isBundle: true,
+            bundleId: b.id,
+            name: b.name,
+            bundleItems: b.items,
+            unitPrice: Number(b.price),
+            unitCost: Number(b.calculatedCost || 0),
+            quantity: 1
+        });
+    }
+    recalculateCart();
+}
+
 async function updateCartQty(idx, delta) {
     const item = cart[idx];
     if (delta < 0 && currentUser && currentUser.role !== 'OWNER') {
-        await logAudit('CART_ITEM_REDUCED', 'cart', item.productId, `إنقاص/حذف (${item.name}) من السلة قبل اعتماد الفاتورة`);
+        await logAudit('CART_ITEM_REDUCED', 'cart', item.productId || item.bundleId, `إنقاص/حذف (${item.name}) من السلة قبل اعتماد الفاتورة`);
     }
     cart[idx].quantity += delta;
     if (cart[idx].quantity <= 0) cart.splice(idx, 1);
@@ -1414,12 +1682,19 @@ function toggleDeliveryFields() {
     const isDelivery = document.getElementById('orderTypeSelect').value === 'DELIVERY';
     document.getElementById('deliveryFields').style.display = isDelivery ? 'block' : 'none';
     document.getElementById('paymentMethodWrapper').style.display = isDelivery ? 'none' : 'block';
+    if (isDelivery) document.getElementById('creditCustomerWrapper').style.display = 'none';
+    else toggleCreditCustomerSelect();
     recalculateCart();
+}
+
+function toggleCreditCustomerSelect() {
+    const isCredit = document.getElementById('posPayMethod').value === 'CREDIT' && document.getElementById('orderTypeSelect').value === 'TAKEAWAY';
+    document.getElementById('creditCustomerWrapper').style.display = isCredit ? 'block' : 'none';
 }
 
 async function recalculateCart() {
     const listEl = document.getElementById('cartItemsList');
-    if (cart.length === 0) listEl.innerHTML = `<div style="text-align:center; color:var(--text-muted); padding:16px;">اضغط على أي منتج لإضافته فوراً</div>`;
+    if (cart.length === 0) listEl.innerHTML = `<div style="text-align:center; color:var(--text-muted); padding:16px;">اضغط على أي منتج أو باقة لإضافتها فوراً</div>`;
     else {
         listEl.innerHTML = cart.map((item, idx) => `
             <div class="cart-row">
@@ -1438,13 +1713,32 @@ async function recalculateCart() {
 
     const subtotal = cart.reduce((s, i) => s + (i.unitPrice * i.quantity), 0);
     let discount = 0;
+
+    // 1. حساب عروض "اشترِ X واحصل على Y مجاناً" تلقائياً
+    const bogoOffers = (await dbGetAll('offers')).filter(o => o.isActive && o.type === 'BOGO');
+    for (const bo of bogoOffers) {
+        const cartItem = cart.find(c => !c.isBundle && c.productId === bo.productId);
+        if (cartItem) {
+            const groupSize = Number(bo.buyQty) + Number(bo.freeQty);
+            if (groupSize > 0 && cartItem.quantity >= groupSize) {
+                const freeSets = Math.floor(cartItem.quantity / groupSize);
+                discount += freeSets * Number(bo.freeQty) * cartItem.unitPrice;
+            }
+        }
+    }
+
+    // 2. حساب الخصم اليدوي المختار (نسبة أو مبلغ ثابت)
     const offerId = document.getElementById('offerSelect').value;
     if (offerId && subtotal > 0) {
         const offer = await dbGet('offers', offerId);
-        if (offer && subtotal >= (offer.minOrder || 0)) discount = offer.type === 'PERCENT' ? (subtotal * offer.value / 100) : offer.value;
+        if (offer && subtotal >= (offer.minOrder || 0)) {
+            discount += offer.type === 'PERCENT' ? (subtotal * offer.value / 100) : offer.value;
+        }
     }
 
+    discount = Math.min(subtotal, Number(discount.toFixed(0)));
     const afterDiscount = Math.max(0, subtotal - discount);
+
     let deliveryFee = 0;
     if (document.getElementById('orderTypeSelect').value === 'DELIVERY' && subtotal > 0) {
         const zoneId = document.getElementById('deliveryZoneSelect').value;
@@ -1465,7 +1759,6 @@ async function recalculateCart() {
     return { subtotal, discount, deliveryFee, total };
 }
 
-// الحصول على الوردية المشتركة المفتوحة للمحل
 async function getOpenBranchShift() {
     const sessions = await dbGetAll('cash_sessions');
     return sessions.find(s => s.status === 'OPEN');
@@ -1476,57 +1769,75 @@ async function checkoutInvoice() {
     const openSession = await getOpenBranchShift();
     if (!openSession) return alert('يجب فتح وردية المحل أولاً من زر (الوردية) في الأعلى!');
 
+    const orderType = document.getElementById('orderTypeSelect').value;
+    const isDelivery = orderType === 'DELIVERY';
+    const paymentMethod = isDelivery ? 'PENDING' : document.getElementById('posPayMethod').value;
+    const isCredit = !isDelivery && paymentMethod === 'CREDIT';
+
+    let creditCustomer = null;
+    if (isCredit) {
+        const credId = document.getElementById('posCreditCustomerSelect').value;
+        if (!credId) return alert('يرجى اختيار الزبون المعتمد للدين أو إضافته أولاً!');
+        creditCustomer = await dbGet('credit_customers', credId);
+    }
+
     const recipes = await dbGetAll('recipes');
     const invItems = await dbGetAll('inventory_items');
     const invMap = new Map(invItems.map(i => [i.id, { ...i }]));
     const requiredTotals = new Map();
 
+    // تجميع المواد المستهلكة سواء كانت منتجات مفردة أو باقات مجمعة
     for (const item of cart) {
-        const recipe = recipes.find(r => r.productId === item.productId);
-        if (recipe && recipe.ingredients) {
-            for (const ing of recipe.ingredients) {
-                const need = ing.quantity * item.quantity;
-                requiredTotals.set(ing.inventoryItemId, (requiredTotals.get(ing.inventoryItemId) || 0) + need);
+        if (item.isBundle && item.bundleItems) {
+            for (const bSub of item.bundleItems) {
+                const recipe = recipes.find(r => r.productId === bSub.productId);
+                if (recipe && recipe.ingredients) {
+                    for (const ing of recipe.ingredients) {
+                        const need = ing.quantity * bSub.quantity * item.quantity;
+                        requiredTotals.set(ing.inventoryItemId, (requiredTotals.get(ing.inventoryItemId) || 0) + need);
+                    }
+                }
+            }
+        } else {
+            const recipe = recipes.find(r => r.productId === item.productId);
+            if (recipe && recipe.ingredients) {
+                for (const ing of recipe.ingredients) {
+                    const need = ing.quantity * item.quantity;
+                    requiredTotals.set(ing.inventoryItemId, (requiredTotals.get(ing.inventoryItemId) || 0) + need);
+                }
             }
         }
     }
 
+    // خصم مرن من المخزون (يسمح بالسالب ولا يعطل الفاتورة)
+    let lowWarnings = [];
     for (const [invId, neededQty] of requiredTotals.entries()) {
         const inv = invMap.get(invId);
-        if (!inv || inv.currentQuantity < neededQty) {
-            const avail = inv ? inv.currentQuantity : 0;
-            const unit = inv ? inv.unit : '';
-            const name = inv ? inv.name : 'مادة غير معروفة';
-            return alert(`لا يمكن إتمام الفاتورة!\nالرصيد غير كافٍ من (${name}).\nالمطلوب: ${neededQty} ${unit} | المتوفر حالياً: ${avail} ${unit}`);
+        if (inv) {
+            inv.currentQuantity = Number((inv.currentQuantity - neededQty).toFixed(3));
+            if (inv.currentQuantity < 0) lowWarnings.push(`${inv.name} (${inv.currentQuantity} ${inv.unit})`);
+            await dbPut('inventory_items', inv);
         }
     }
 
     const totals = await recalculateCart();
     const counterObj = await dbGet('settings', 'invoice_counter');
     const invNum = (counterObj?.value || 1000) + 1;
-    const orderType = document.getElementById('orderTypeSelect').value;
-    const isDelivery = orderType === 'DELIVERY';
-    const paymentMethod = isDelivery ? 'PENDING' : document.getElementById('posPayMethod').value;
 
     let totalCostSnapshot = 0;
     for (const item of cart) totalCostSnapshot += item.unitCost * item.quantity;
 
-    for (const [invId, neededQty] of requiredTotals.entries()) {
-        const inv = invMap.get(invId);
-        inv.currentQuantity = Number((inv.currentQuantity - neededQty).toFixed(3));
-        await dbPut('inventory_items', inv);
-    }
-
     const invoice = {
         id: uuid(), invoiceNumber: invNum, sessionId: openSession.id,
         userId: currentUser.id, userName: currentUser.fullName, orderType,
-        paymentMethod, paymentStatus: isDelivery ? 'PENDING' : 'PAID',
+        paymentMethod, paymentStatus: (isDelivery || isCredit) ? 'PENDING' : 'PAID',
+        creditCustomerId: creditCustomer ? creditCustomer.id : null,
         items: [...cart], subtotal: totals.subtotal, discountAmount: totals.discount,
         deliveryFee: totals.deliveryFee,
-        customerName: document.getElementById('custName').value,
-        customerPhone: document.getElementById('custPhone').value,
+        customerName: creditCustomer ? creditCustomer.name : document.getElementById('custName').value,
+        customerPhone: creditCustomer ? creditCustomer.phone : document.getElementById('custPhone').value,
         totalAmount: totals.total, totalCostSnapshot,
-        status: isDelivery ? 'معلقة (بانتظار التحصيل)' : 'مكتملة',
+        status: isCredit ? `دين على (${creditCustomer.name})` : (isDelivery ? 'معلقة (توصيل)' : 'مكتملة'),
         isCancelled: false, notes: document.getElementById('orderNotes').value,
         createdAt: Date.now()
     };
@@ -1534,8 +1845,10 @@ async function checkoutInvoice() {
     await dbPut('invoices', invoice);
     await dbPut('settings', { id: 'invoice_counter', value: invNum });
 
-    // إذا كانت سفري مدفوع، تدخل الصندوق أو المحفظة فوراً؛ أما التوصيل فتنتظر التحصيل
-    if (!isDelivery) {
+    if (isCredit && creditCustomer) {
+        creditCustomer.balance = Number(((creditCustomer.balance || 0) + invoice.totalAmount).toFixed(2));
+        await dbPut('credit_customers', creditCustomer);
+    } else if (!isDelivery) {
         await dbPut('cash_transactions', {
             id: uuid(), sessionId: openSession.id,
             type: paymentMethod === 'WALLET' ? 'SALE_WALLET' : 'SALE_CASH',
@@ -1545,24 +1858,23 @@ async function checkoutInvoice() {
         });
     }
 
-    if (totals.discount > 0 && currentUser.role !== 'OWNER') {
-        await logAudit('STAFF_DISCOUNT_APPLIED', 'invoice', invoice.id, `تطبيق خصم ${totals.discount} ريال على فاتورة #${invNum}`);
-    }
-    await logAudit('CREATE_INVOICE', 'invoice', invoice.id, `فاتورة #${invNum} بقيمة ${invoice.totalAmount} ريال (${isDelivery ? 'توصيل معلق' : paymentMethod})`);
+    await logAudit('CREATE_INVOICE', 'invoice', invoice.id, `فاتورة #${invNum} بقيمة ${invoice.totalAmount} ريال (${invoice.status})`);
 
     await clearCart(false);
     document.getElementById('orderNotes').value = '';
-    alert(isDelivery ? `تم تسجيل فاتورة التوصيل #${invNum} كفاتورة معلقة بانتظار استلام المبلغ!` : `تم اعتماد الفاتورة #${invNum} بنجاح!`);
+    const warnMsg = lowWarnings.length > 0 ? `\n⚠️ تنبيه رصيد سالب بالمخزن: ${lowWarnings.join('، ')}` : '';
+    alert(`تم اعتماد الفاتورة #${invNum} بنجاح!${warnMsg}`);
     refreshAllViews();
 }
 
-// ==================== الفواتير (بيع + شراء + تحصيل المعلقة) ====================
+// ==================== الفواتير وديون الزبائن ====================
 async function renderInvoices() {
     const invoices = (await dbGetAll('invoices')).sort((a, b) => b.createdAt - a.createdAt);
     document.getElementById('invoicesTableBody').innerHTML = invoices.map(inv => {
         const isPending = inv.paymentStatus === 'PENDING' && !inv.isCancelled;
-        const payLabel = inv.paymentStatus === 'PENDING' ? '<span style="color:var(--warning)">معلق</span>'
-            : (inv.paymentMethod === 'WALLET' ? '<span style="color:var(--info)">📱 محفظة</span>' : '💵 كاش');
+        const payLabel = inv.paymentMethod === 'CREDIT' ? '<span style="color:var(--warning)">📒 آجل/دين</span>'
+            : (inv.paymentStatus === 'PENDING' ? '<span style="color:var(--warning)">معلق توصيل</span>'
+            : (inv.paymentMethod === 'WALLET' ? '<span style="color:var(--info)">📱 محفظة</span>' : '💵 كاش'));
 
         return `
             <tr style="${inv.isCancelled ? 'opacity:0.5; text-decoration:line-through;' : ''}">
@@ -1574,7 +1886,7 @@ async function renderInvoices() {
                 <td>${inv.isCancelled ? 'ملغاة' : inv.status}</td>
                 <td>${inv.userName}</td>
                 <td style="display:flex; gap:4px;">
-                    ${isPending ? `<button class="btn btn-success btn-sm" onclick="openCollectDeliveryModal('${inv.id}')">✓ استلام المبلغ</button>` : ''}
+                    ${isPending ? `<button class="btn btn-success btn-sm" onclick="openCollectDeliveryModal('${inv.id}')">✓ استلام</button>` : ''}
                     <button class="btn btn-dark btn-sm" onclick="printThermalInvoice('${inv.id}')">طباعة</button>
                     ${(!inv.isCancelled && currentUser.role === 'OWNER') ? `<button class="btn btn-danger btn-sm" onclick="cancelInvoice('${inv.id}')">إلغاء</button>` : ''}
                 </td>
@@ -1582,12 +1894,27 @@ async function renderInvoices() {
         `;
     }).join('');
 
+    // ديون الزبائن المخصصين
+    const credCusts = await dbGetAll('credit_customers');
+    document.getElementById('creditCustomersTableBody').innerHTML = credCusts.length === 0
+        ? `<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">لا يوجد زبائن مضافون للدين بعد</td></tr>`
+        : credCusts.map(c => `
+            <tr>
+                <td><strong>${c.name}</strong></td>
+                <td>${c.phone || '-'}</td>
+                <td style="color:${(c.balance || 0) > 0 ? 'var(--danger)' : 'var(--success)'}; font-weight:900;">${c.balance || 0} ريال</td>
+                <td>
+                    ${(c.balance || 0) > 0 ? `<button class="btn btn-success btn-sm" onclick="openPayCreditModal('${c.id}')">💰 تسجيل سداد</button>` : '<span style="color:var(--text-muted)">خالص</span>'}
+                </td>
+            </tr>
+        `).join('');
+
     // فواتير الشراء والمشتريات
     const exps = (await dbGetAll('expenses')).filter(e => e.category === 'شراء مواد خام').sort((a, b) => b.timestamp - a.timestamp);
     document.getElementById('purchaseInvoicesTableBody').innerHTML = exps.length === 0
         ? `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">لا توجد فواتير شراء مسجلة بعد</td></tr>`
         : exps.map(e => {
-            const srcName = e.source === 'SHIFT_CASH' ? '💵 صندوق المحل' : (e.source === 'WALLET' ? '📱 محفظة إلكترونية' : '👑 حساب المالك');
+            const srcName = e.source === 'SHIFT_CASH' ? '💵 صندوق المحل' : (e.source === 'WALLET' ? '📱 محفظة' : (e.source === 'SUPPLIER_CREDIT' ? '📒 آجل لمورد' : '👑 حساب المالك'));
             return `
                 <tr>
                     <td>${new Date(e.timestamp).toLocaleString('ar-YE', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'})}</td>
@@ -1600,13 +1927,69 @@ async function renderInvoices() {
         }).join('');
 }
 
+async function saveCreditCustomer() {
+    const name = document.getElementById('credCustName').value.trim();
+    if (!name) return alert('أدخل اسم الزبون');
+    await dbPut('credit_customers', { id: uuid(), name, phone: document.getElementById('credCustPhone').value.trim(), balance: 0 });
+    document.getElementById('credCustName').value = '';
+    document.getElementById('credCustPhone').value = '';
+    closeModal('creditCustomerModal');
+    refreshAllViews();
+}
+
+async function openPayCreditModal(custId) {
+    const c = await dbGet('credit_customers', custId);
+    if (!c) return;
+    document.getElementById('payCredCustId').value = c.id;
+    document.getElementById('payCredCustInfo').innerHTML = `الزبون: <strong>${c.name}</strong> | إجمالي الدين المتبقي: <strong style="color:var(--danger)">${c.balance} ريال</strong>`;
+    document.getElementById('payCredAmount').value = c.balance;
+    openModal('payCreditCustomerModal');
+}
+
+async function confirmPayCreditCustomer() {
+    const custId = document.getElementById('payCredCustId').value;
+    const amt = cleanNumber(document.getElementById('payCredAmount').value);
+    const method = document.getElementById('payCredMethod').value;
+    if (!amt || amt <= 0) return alert('أدخل مبلغ السداد');
+
+    const openSession = await getOpenBranchShift();
+    if (!openSession) return alert('يجب فتح وردية المحل أولاً لاستلام السداد!');
+
+    const c = await dbGet('credit_customers', custId);
+    c.balance = Math.max(0, Number(((c.balance || 0) - amt).toFixed(2)));
+    await dbPut('credit_customers', c);
+
+    // تحديث الفواتير المعلقة لهذا الزبون إذا تم تصفير رصيده
+    if (c.balance === 0) {
+        const invs = (await dbGetAll('invoices')).filter(i => i.creditCustomerId === c.id && i.paymentStatus === 'PENDING');
+        for (const inv of invs) {
+            inv.paymentStatus = 'PAID';
+            inv.status = `مسددة (${c.name})`;
+            await dbPut('invoices', inv);
+        }
+    }
+
+    await dbPut('cash_transactions', {
+        id: uuid(), sessionId: openSession.id,
+        type: method === 'WALLET' ? 'SALE_WALLET' : 'SALE_CASH',
+        amount: amt, referenceId: c.id,
+        description: `سداد دين من الزبون (${c.name})`,
+        userId: currentUser.id, timestamp: Date.now()
+    });
+
+    await logAudit('COLLECT_CREDIT', 'credit_customer', c.id, `استلام سداد دين ${amt} ريال من ${c.name}`);
+    closeModal('payCreditCustomerModal');
+    alert(`تم استلام ${amt} ريال من ${c.name} وإضافتها للصندوق!`);
+    refreshAllViews();
+}
+
 async function openCollectDeliveryModal(invId) {
     const inv = await dbGet('invoices', invId);
     if (!inv) return;
     document.getElementById('collectInvId').value = inv.id;
     document.getElementById('collectInvDetails').innerHTML = `
-        <div>فاتورة توصيل رقم: <strong>#${inv.invoiceNumber}</strong></div>
-        <div style="margin-top:4px;">العميل: <strong>${inv.customerName || 'غير محدد'}</strong> ${inv.customerPhone ? '(' + inv.customerPhone + ')' : ''}</div>
+        <div>فاتورة رقم: <strong>#${inv.invoiceNumber}</strong></div>
+        <div style="margin-top:4px;">العميل: <strong>${inv.customerName || 'غير محدد'}</strong></div>
         <div style="margin-top:6px; color:var(--gold); font-size:18px; font-weight:900;">المبلغ المطلوب تحصيله: ${inv.totalAmount} ريال</div>
     `;
     openModal('collectDeliveryModal');
@@ -1621,6 +2004,14 @@ async function confirmCollectDelivery() {
     const openSession = await getOpenBranchShift();
     if (!openSession) return alert('يجب فتح وردية المحل أولاً لإضافة المبلغ المحصّل!');
 
+    if (inv.creditCustomerId) {
+        const c = await dbGet('credit_customers', inv.creditCustomerId);
+        if (c) {
+            c.balance = Math.max(0, Number(((c.balance || 0) - inv.totalAmount).toFixed(2)));
+            await dbPut('credit_customers', c);
+        }
+    }
+
     inv.paymentStatus = 'PAID';
     inv.paymentMethod = payMethod;
     inv.status = 'مكتملة (تم التحصيل)';
@@ -1630,13 +2021,13 @@ async function confirmCollectDelivery() {
         id: uuid(), sessionId: openSession.id,
         type: payMethod === 'WALLET' ? 'SALE_WALLET' : 'SALE_CASH',
         amount: inv.totalAmount, referenceId: inv.id,
-        description: `تحصيل توصيل فاتورة #${inv.invoiceNumber} (${payMethod === 'WALLET' ? 'محفظة' : 'نقدي'})`,
+        description: `تحصيل فاتورة معلقة #${inv.invoiceNumber}`,
         userId: currentUser.id, timestamp: Date.now()
     });
 
-    await logAudit('COLLECT_DELIVERY', 'invoice', inv.id, `تحصيل فاتورة توصيل #${inv.invoiceNumber} بقيمة ${inv.totalAmount} ريال (${payMethod})`);
+    await logAudit('COLLECT_DELIVERY', 'invoice', inv.id, `تحصيل فاتورة #${inv.invoiceNumber} بقيمة ${inv.totalAmount} ريال`);
     closeModal('collectDeliveryModal');
-    alert(`تم تأكيد استلام ${inv.totalAmount} ريال وإضافتها إلى ${payMethod === 'WALLET' ? 'المحفظة الإلكترونية' : 'صندوق المحل'}!`);
+    alert(`تم تأكيد استلام ${inv.totalAmount} ريال وإضافتها بنجاح!`);
     refreshAllViews();
 }
 
@@ -1655,6 +2046,12 @@ async function cancelInvoice(invId) {
             amount: -inv.totalAmount, referenceId: inv.id,
             description: `إلغاء فاتورة #${inv.invoiceNumber}: ${reason}`, userId: currentUser.id, timestamp: Date.now()
         });
+    } else if (inv.creditCustomerId) {
+        const c = await dbGet('credit_customers', inv.creditCustomerId);
+        if (c) {
+            c.balance = Math.max(0, Number(((c.balance || 0) - inv.totalAmount).toFixed(2)));
+            await dbPut('credit_customers', c);
+        }
     }
     await logAudit('CANCEL_INVOICE', 'invoice', inv.id, `إلغاء فاتورة #${inv.invoiceNumber} - ${reason}`);
     refreshAllViews();
@@ -1676,7 +2073,7 @@ async function printThermalInvoice(invId) {
     window.print();
 }
 
-// ==================== الوردية المشتركة والصندوق + المحفظة ====================
+// ==================== الوردية المشتركة + سحب المالك + سلف العمال ====================
 async function getSessionBalances(sessionId) {
     const s = await dbGet('cash_sessions', sessionId);
     const txs = (await dbGetAll('cash_transactions')).filter(t => t.sessionId === sessionId);
@@ -1794,7 +2191,7 @@ async function confirmCloseShift(sessionId, expectedCash, expectedWallet) {
     s.difference = Number((actual - expectedCash).toFixed(2));
     s.status = 'CLOSED';
     await dbPut('cash_sessions', s);
-    await logAudit('CLOSE_SHIFT', 'cash_session', s.id, `إغلاق وردية - الكاش المتوقع: ${expectedCash}، الفعلي: ${actual}، الفرق: ${s.difference} | المحفظة: ${expectedWallet}`);
+    await logAudit('CLOSE_SHIFT', 'cash_session', s.id, `إغلاق وردية - الكاش المتوقع: ${expectedCash}، الفعلي: ${actual}، الفرق: ${s.difference}`);
     closeModal('shiftModal');
     refreshAllViews();
 }
@@ -1813,11 +2210,73 @@ async function recordCashMove(type) {
     refreshAllViews();
 }
 
-// ==================== العمليات: المشتريات (مع المحفظة)، التحضير، المخزون ====================
+async function confirmOwnerDraw() {
+    const amt = cleanNumber(document.getElementById('ownerDrawAmount').value);
+    const note = document.getElementById('ownerDrawNote').value.trim() || 'سحب شخصي للمالك';
+    if (!amt || amt <= 0) return alert('أدخل المبلغ المسحوب');
+
+    const openSession = await getOpenBranchShift();
+    if (!openSession) return alert('يجب فتح وردية المحل أولاً لتسجيل السحب من الصندوق!');
+
+    await dbPut('owner_draws', { id: uuid(), amount: amt, note, userName: currentUser.fullName, timestamp: Date.now() });
+    await dbPut('cash_transactions', {
+        id: uuid(), sessionId: openSession.id, type: 'OWNER_DRAW', amount: -amt,
+        description: `👑 سحب للمالك: ${note}`, userId: currentUser.id, timestamp: Date.now()
+    });
+    await logAudit('OWNER_DRAW', 'cash_transaction', openSession.id, `سحب للمالك: ${amt} ريال - ${note}`);
+    document.getElementById('ownerDrawAmount').value = '';
+    closeModal('ownerDrawModal');
+    alert(`تم تسجيل سحب للمالك بقيمة ${amt} ريال وخصمه من كاش الصندوق.`);
+    refreshAllViews();
+}
+
+async function openStaffAdvanceModal() {
+    const staff = (await dbGetAll('users')).filter(u => !u.isDeleted && u.isActive);
+    document.getElementById('advStaffSelect').innerHTML = staff.map(u => `<option value="${u.id}">${u.fullName}</option>`).join('');
+    document.getElementById('advAmount').value = '';
+    document.getElementById('advNote').value = '';
+    openModal('staffAdvanceModal');
+}
+
+async function confirmStaffAdvance() {
+    const staffId = document.getElementById('advStaffSelect').value;
+    const amt = cleanNumber(document.getElementById('advAmount').value);
+    const source = document.getElementById('advSource').value;
+    const note = document.getElementById('advNote').value.trim() || 'سلفة من الراتب';
+    if (!staffId || !amt || amt <= 0) return alert('اختر العامل وأدخل مبلغ السلفة');
+
+    const openSession = await getOpenBranchShift();
+    if ((source === 'SHIFT_CASH' || source === 'WALLET') && !openSession) return alert('يجب فتح وردية المحل أولاً لصرف السلفة!');
+
+    const staffUser = await dbGet('users', staffId);
+    await dbPut('staff_advances', {
+        id: uuid(), staffId, staffName: staffUser.fullName, amount: amt, source, note,
+        recordedBy: currentUser.fullName, timestamp: Date.now()
+    });
+
+    if (source === 'SHIFT_CASH') {
+        await dbPut('cash_transactions', {
+            id: uuid(), sessionId: openSession.id, type: 'STAFF_ADVANCE_CASH', amount: -amt,
+            description: `سلفة عامل (${staffUser.fullName}): ${note}`, userId: currentUser.id, timestamp: Date.now()
+        });
+    } else if (source === 'WALLET') {
+        await dbPut('cash_transactions', {
+            id: uuid(), sessionId: openSession.id, type: 'STAFF_ADVANCE_WALLET', amount: -amt,
+            description: `سلفة محفظة (${staffUser.fullName}): ${note}`, userId: currentUser.id, timestamp: Date.now()
+        });
+    }
+
+    await logAudit('STAFF_ADVANCE', 'user', staffId, `صرف سلفة ${amt} ريال للعامل ${staffUser.fullName}`);
+    closeModal('staffAdvanceModal');
+    alert(`تم تسجيل سلفة ${amt} ريال للعامل (${staffUser.fullName}) بنجاح!`);
+    refreshAllViews();
+}
+
+// ==================== العمليات: المشتريات (كاش + آجل لمورد)، الجرد الشامل، المخزون ====================
 async function renderOperations() {
     const exps = (await dbGetAll('expenses')).sort((a, b) => b.timestamp - a.timestamp);
     document.getElementById('expensesTableBody').innerHTML = exps.map(e => {
-        const srcText = e.source === 'SHIFT_CASH' ? '💵 الصندوق' : (e.source === 'WALLET' ? '📱 المحفظة' : '👑 حساب المالك');
+        const srcText = e.source === 'SHIFT_CASH' ? '💵 الصندوق' : (e.source === 'WALLET' ? '📱 المحفظة' : (e.source === 'SUPPLIER_CREDIT' ? '📒 آجل لمورد' : '👑 حساب المالك'));
         return `
             <tr>
                 <td>${new Date(e.timestamp).toLocaleTimeString('ar-YE', {hour:'2-digit', minute:'2-digit'})}</td>
@@ -1861,11 +2320,13 @@ async function renderOperations() {
         ? prepItems.map(i => `<option value="${i.id}">${i.name} (متوفر: ${i.currentQuantity} ${i.unit})</option>`).join('')
         : `<option value="">لم يقم المالك بتعريف وصفات تحضير بعد</option>`;
 
-    ['countInvSelect', 'wasteInvSelect'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.innerHTML = allOpts;
-    });
-    updateTheoreticalDisplay();
+    const wasteEl = document.getElementById('wasteInvSelect');
+    if (wasteEl) wasteEl.innerHTML = allOpts;
+}
+
+function toggleBuySupplierSelect() {
+    const isSup = document.getElementById('buyPaySource').value === 'SUPPLIER_CREDIT';
+    document.getElementById('buySupplierWrapper').style.display = isSup ? 'block' : 'none';
 }
 
 async function openStaffBuyModal() {
@@ -1873,6 +2334,11 @@ async function openStaffBuyModal() {
         i.isActive && i.itemType !== 'PREPARED' && (currentUser.role === 'OWNER' || i.purchasePolicy !== 'OWNER_ONLY')
     );
     if (items.length === 0) return alert('لا توجد مواد خام مفعّلة للشراء حالياً.');
+
+    const suppliers = await dbGetAll('suppliers');
+    document.getElementById('buySupplierSelect').innerHTML = suppliers.length === 0
+        ? `<option value="">أضف مورداً من لوحة المالك أولاً</option>`
+        : suppliers.map(s => `<option value="${s.id}">${s.name} (المستحق له: ${s.balance || 0} ريال)</option>`).join('');
 
     document.getElementById('buyInvSelect').innerHTML = items.map(i => {
         const pol = i.purchasePolicy || 'FIXED';
@@ -1886,6 +2352,8 @@ async function openStaffBuyModal() {
     document.getElementById('buyQty').value = '';
     document.getElementById('buyTotalCost').value = '';
     document.getElementById('buyNotes').value = '';
+    document.getElementById('buyPaySource').value = 'SHIFT_CASH';
+    toggleBuySupplierSelect();
     handleBuyItemChange();
     openModal('staffBuyModal');
 }
@@ -1909,7 +2377,7 @@ function handleBuyItemChange() {
         totalInput.removeAttribute('readonly');
         totalInput.value = '';
         document.getElementById('buyUnitPriceLabel').innerText = `سعر الـ ${pUnit} المحسوب`;
-        document.getElementById('buyTotalCostLabel').innerText = 'أدخل إجمالي الفاتورة المدفوعة (ريال)';
+        document.getElementById('buyTotalCostLabel').innerText = 'أدخل إجمالي الفاتورة (ريال)';
     }
     handleBuyQtyOrPriceInput();
 }
@@ -1951,7 +2419,14 @@ async function confirmStaffPurchase() {
     const notes = document.getElementById('buyNotes').value.trim();
 
     if (!itemId || !calc || calc.packQty <= 0) return alert('يرجى إدخال الكمية المشتراة.');
-    if (calc.total <= 0) return alert('يرجى التأكد من المبلغ الإجمالي المدفوع.');
+    if (calc.total <= 0) return alert('يرجى التأكد من المبلغ الإجمالي.');
+
+    let supplier = null;
+    if (source === 'SUPPLIER_CREDIT') {
+        const supId = document.getElementById('buySupplierSelect').value;
+        if (!supId) return alert('يرجى اختيار المورد للشراء الآجل!');
+        supplier = await dbGet('suppliers', supId);
+    }
 
     const openSession = await getOpenBranchShift();
     if ((source === 'SHIFT_CASH' || source === 'WALLET') && !openSession) {
@@ -1970,16 +2445,20 @@ async function confirmStaffPurchase() {
     await dbPut('inventory_items', item);
 
     const pUnit = item.purchaseUnit || item.unit;
-    const reasonText = `شراء ${calc.packQty} ${pUnit} من (${item.name}) = أُضيف ${calc.addedStockUnits} ${item.unit} بمبلغ ${calc.total} ريال ${notes ? '- ' + notes : ''}`;
+    const supTag = supplier ? ` [آجل للمورد: ${supplier.name}]` : '';
+    const reasonText = `شراء ${calc.packQty} ${pUnit} من (${item.name}) = أُضيف ${calc.addedStockUnits} ${item.unit} بمبلغ ${calc.total} ريال${supTag} ${notes ? '- ' + notes : ''}`;
 
     const exp = {
         id: uuid(), sessionId: openSession?.id || null, category: 'شراء مواد خام',
-        amount: calc.total, source, reason: reasonText,
+        amount: calc.total, source, supplierId: supplier ? supplier.id : null, reason: reasonText,
         userId: currentUser.id, userName: currentUser.fullName, timestamp: Date.now()
     };
     await dbPut('expenses', exp);
 
-    if (source === 'SHIFT_CASH') {
+    if (source === 'SUPPLIER_CREDIT' && supplier) {
+        supplier.balance = Number(((supplier.balance || 0) + calc.total).toFixed(2));
+        await dbPut('suppliers', supplier);
+    } else if (source === 'SHIFT_CASH') {
         await dbPut('cash_transactions', {
             id: uuid(), sessionId: openSession.id, type: 'EXPENSE_CASH', amount: -calc.total,
             referenceId: exp.id, description: reasonText, userId: currentUser.id, timestamp: Date.now()
@@ -1993,11 +2472,139 @@ async function confirmStaffPurchase() {
 
     await logAudit('STAFF_PURCHASE', 'inventory', item.id, reasonText);
     closeModal('staffBuyModal');
-    alert(`تمت إضافة ${calc.addedStockUnits} ${item.unit} إلى (${item.name}) وتسجيل المبلغ (${calc.total} ريال) بنجاح!`);
+    alert(`تمت إضافة ${calc.addedStockUnits} ${item.unit} إلى (${item.name}) وتسجيل الفاتورة بنجاح!`);
     refreshAllViews();
 }
 
-// ==================== تعريف وتعديل المواد الخام ====================
+// ==================== الجرد الشامل الكامل ====================
+async function openFullInventoryModal() {
+    const items = (await dbGetAll('inventory_items')).filter(i => i.isActive);
+    if (items.length === 0) return alert('لا توجد أصناف في المخزون للجرد.');
+
+    document.getElementById('fullInvCountBody').innerHTML = items.map(i => `
+        <tr>
+            <td><strong>${i.name}</strong></td>
+            <td>${i.currentQuantity} ${i.unit}</td>
+            <td>
+                <input type="text" inputmode="decimal" class="full-inv-input" data-id="${i.id}" data-sys="${i.currentQuantity}" data-unit="${i.unit}"
+                    placeholder="الفعلي" style="width:90px; padding:6px;" oninput="calcFullInvDiff(this)">
+            </td>
+            <td class="full-inv-diff" style="font-weight:700;">-</td>
+        </tr>
+    `).join('');
+    document.getElementById('fullInvNotes').value = '';
+    openModal('fullInventoryModal');
+}
+
+function calcFullInvDiff(inputEl) {
+    const row = inputEl.closest('tr');
+    const diffCell = row.querySelector('.full-inv-diff');
+    if (inputEl.value.trim() === '') {
+        diffCell.innerText = '-';
+        diffCell.style.color = '';
+        return;
+    }
+    const sys = Number(inputEl.dataset.sys);
+    const actual = cleanNumber(inputEl.value);
+    const diff = Number((actual - sys).toFixed(3));
+    diffCell.innerText = (diff > 0 ? '+' : '') + diff;
+    diffCell.style.color = diff < 0 ? 'var(--danger)' : (diff > 0 ? 'var(--success)' : 'var(--text-muted)');
+}
+
+async function saveFullInventoryCount() {
+    const inputs = document.querySelectorAll('.full-inv-input');
+    const notes = document.getElementById('fullInvNotes').value.trim();
+    let updatedCount = 0;
+    let summary = [];
+
+    for (const inp of inputs) {
+        if (inp.value.trim() !== '') {
+            const id = inp.dataset.id;
+            const actual = cleanNumber(inp.value);
+            const item = await dbGet('inventory_items', id);
+            const diff = Number((actual - item.currentQuantity).toFixed(3));
+            item.currentQuantity = actual;
+            await dbPut('inventory_items', item);
+            summary.push(`${item.name}: ${actual} (${diff >= 0 ? '+' + diff : diff})`);
+            updatedCount++;
+        }
+    }
+
+    if (updatedCount === 0) return alert('لم تقم بإدخال أي كمية فعلية للتسوية.');
+    await logAudit('FULL_INV_COUNT', 'inventory', 'ALL', `جرد شامل (${updatedCount} صنف): ${summary.join(' | ')} ${notes ? '- ' + notes : ''}`);
+    closeModal('fullInventoryModal');
+    alert(`تم اعتماد الجرد الشامل وتحديث رصيد ${updatedCount} صنف بنجاح!`);
+    refreshAllViews();
+}
+
+// ==================== الموردون والآجل ====================
+async function renderSuppliers() {
+    const sups = await dbGetAll('suppliers');
+    document.getElementById('suppliersTableBody').innerHTML = sups.length === 0
+        ? `<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">لا يوجد موردون مضافون بعد</td></tr>`
+        : sups.map(s => `
+            <tr>
+                <td><strong>${s.name}</strong></td>
+                <td>${s.phone || '-'}</td>
+                <td style="color:${(s.balance || 0) > 0 ? 'var(--danger)' : 'var(--success)'}; font-weight:900;">${s.balance || 0} ريال</td>
+                <td>
+                    ${(s.balance || 0) > 0 ? `<button class="btn btn-success btn-sm" onclick="openPaySupplierModal('${s.id}')">💸 سداد دفعة</button>` : '<span style="color:var(--text-muted)">لا توجد مستحقات</span>'}
+                </td>
+            </tr>
+        `).join('');
+}
+
+async function saveSupplier() {
+    const name = document.getElementById('supName').value.trim();
+    if (!name) return alert('أدخل اسم المورد');
+    await dbPut('suppliers', { id: uuid(), name, phone: document.getElementById('supPhone').value.trim(), balance: 0 });
+    document.getElementById('supName').value = '';
+    document.getElementById('supPhone').value = '';
+    closeModal('supplierModal');
+    refreshAllViews();
+}
+
+async function openPaySupplierModal(supId) {
+    const s = await dbGet('suppliers', supId);
+    if (!s) return;
+    document.getElementById('paySupId').value = s.id;
+    document.getElementById('paySupInfo').innerHTML = `المورد: <strong>${s.name}</strong> | المستحق له: <strong style="color:var(--danger)">${s.balance} ريال</strong>`;
+    document.getElementById('paySupAmount').value = s.balance;
+    openModal('paySupplierModal');
+}
+
+async function confirmPaySupplier() {
+    const supId = document.getElementById('paySupId').value;
+    const amt = cleanNumber(document.getElementById('paySupAmount').value);
+    const source = document.getElementById('paySupSource').value;
+    if (!amt || amt <= 0) return alert('أدخل مبلغ السداد');
+
+    const openSession = await getOpenBranchShift();
+    if ((source === 'SHIFT_CASH' || source === 'WALLET') && !openSession) return alert('يجب فتح وردية المحل أولاً للسداد من الصندوق!');
+
+    const s = await dbGet('suppliers', supId);
+    s.balance = Math.max(0, Number(((s.balance || 0) - amt).toFixed(2)));
+    await dbPut('suppliers', s);
+
+    if (source === 'SHIFT_CASH') {
+        await dbPut('cash_transactions', {
+            id: uuid(), sessionId: openSession.id, type: 'SUPPLIER_PAY_CASH', amount: -amt,
+            description: `سداد للمورد (${s.name})`, userId: currentUser.id, timestamp: Date.now()
+        });
+    } else if (source === 'WALLET') {
+        await dbPut('cash_transactions', {
+            id: uuid(), sessionId: openSession.id, type: 'SUPPLIER_PAY_WALLET', amount: -amt,
+            description: `سداد محفظة للمورد (${s.name})`, userId: currentUser.id, timestamp: Date.now()
+        });
+    }
+
+    await logAudit('PAY_SUPPLIER', 'supplier', s.id, `سداد ${amt} ريال للمورد ${s.name}`);
+    closeModal('paySupplierModal');
+    alert(`تم تسجيل سداد ${amt} ريال للمورد (${s.name}) بنجاح!`);
+    refreshAllViews();
+}
+
+// ==================== تعريف وتعديل المواد الخام ووصفات التحضير ====================
 function previewInvConversion() {
     const pPrice = cleanNumber(document.getElementById('invPurchasePrice').value);
     const factor = cleanNumber(document.getElementById('invConversionFactor').value) || 1;
@@ -2052,14 +2659,9 @@ async function saveInventoryItem() {
 
     const existing = editId ? await dbGet('inventory_items', editId) : null;
     const item = {
-        id: editId || uuid(),
-        name,
+        id: editId || uuid(), name,
         itemType: existing?.itemType || 'RAW',
-        purchaseUnit,
-        purchasePrice,
-        conversionFactor,
-        unit,
-        unitCost,
+        purchaseUnit, purchasePrice, conversionFactor, unit, unitCost,
         currentQuantity: cleanNumber(document.getElementById('invQty').value),
         minThreshold: cleanNumber(document.getElementById('invMin').value),
         purchasePolicy: document.getElementById('invPurchasePolicy').value,
@@ -2067,13 +2669,12 @@ async function saveInventoryItem() {
     };
     await dbPut('inventory_items', item);
     await recalculateAllProductCosts();
-    await logAudit(editId ? 'EDIT_INV' : 'ADD_INV', 'inventory', item.id, `مادة: ${item.name} - سعر ${purchaseUnit}: ${purchasePrice}`);
+    await logAudit(editId ? 'EDIT_INV' : 'ADD_INV', 'inventory', item.id, `مادة: ${item.name}`);
 
     closeModal('invItemModal');
     refreshAllViews();
 }
 
-// ==================== إنشاء وتعديل وصفات التحضير ====================
 function openNewPrepRecipeModal() {
     document.getElementById('prepRecipeModalTitle').innerText = 'إنشاء وصفة تحضير (طعمية / صوص)';
     document.getElementById('editPrepRecipeId').value = '';
@@ -2102,9 +2703,7 @@ async function editPrepRecipeItem(id) {
     document.getElementById('prepIngRowsContainer').innerHTML = '';
 
     if (rec && rec.ingredients) {
-        for (const ing of rec.ingredients) {
-            await addPrepIngRow(ing.inventoryItemId, ing.quantity);
-        }
+        for (const ing of rec.ingredients) await addPrepIngRow(ing.inventoryItemId, ing.quantity);
     }
     calcPrepPreviewCost();
     openModal('prepRecipeModal');
@@ -2170,7 +2769,6 @@ async function savePrepRecipeItem() {
     });
     await dbPut('prep_recipes', { id, targetItemId: id, yieldQty, ingredients });
     await recalculateAllProductCosts();
-    await logAudit(editId ? 'EDIT_PREP_RECIPE' : 'ADD_PREP_RECIPE', 'inventory', id, `وصفة تحضير: ${name}`);
 
     closeModal('prepRecipeModal');
     refreshAllViews();
@@ -2376,25 +2974,13 @@ async function recalculateAllProductCosts() {
     }
 }
 
-// ==================== تكاليف التشغيل الثابتة (من تاريخ الافتتاح الفعلي) ====================
-async function saveShopOpeningDate() {
-    const dt = document.getElementById('shopOpeningDateInput').value;
-    if (!dt) return alert('اختر تاريخ افتتاح المحل');
-    await dbPut('settings', { id: 'shop_opening_date', value: dt });
-    alert('تم حفظ تاريخ افتتاح المحل! ستُحسب التكاليف الثابتة ابتداءً من هذا التاريخ فقط.');
-    refreshAllViews();
-}
-
+// ==================== تكاليف التشغيل الثابتة (تخصم نهاية الشهر فقط) ====================
 async function renderFixedCosts() {
-    const openDateObj = await dbGet('settings', 'shop_opening_date');
-    document.getElementById('shopOpeningDateInput').value = openDateObj?.value || new Date().toISOString().slice(0, 10);
-
     const list = await dbGetAll('fixed_costs');
     document.getElementById('fixedCostsTableBody').innerHTML = list.map(fc => `
         <tr>
             <td><strong>${fc.name}</strong></td>
-            <td style="color:var(--gold)">${fc.monthlyAmount} ريال</td>
-            <td>${(fc.monthlyAmount / 30).toFixed(0)} ريال / يوم</td>
+            <td style="color:var(--gold)">${fc.monthlyAmount} ريال / شهر</td>
             <td><button class="btn btn-danger btn-sm" onclick="deleteFixedCost('${fc.id}')">حذف</button></td>
         </tr>
     `).join('');
@@ -2489,26 +3075,6 @@ async function saveExpense() {
     refreshAllViews();
 }
 
-async function updateTheoreticalDisplay() {
-    const id = document.getElementById('countInvSelect')?.value;
-    if (!id) return;
-    const item = await dbGet('inventory_items', id);
-    if (item) document.getElementById('theoreticalQtyText').innerText = `${item.currentQuantity} ${item.unit}`;
-}
-
-async function saveInventoryCount() {
-    const id = document.getElementById('countInvSelect').value;
-    const actual = cleanNumber(document.getElementById('actualCountQty').value);
-    const reason = document.getElementById('countReason').value;
-    const item = await dbGet('inventory_items', id);
-    const diff = Number((actual - item.currentQuantity).toFixed(3));
-    item.currentQuantity = actual;
-    await dbPut('inventory_items', item);
-    await logAudit('INV_COUNT', 'inventory', item.id, `جرد ${item.name}: الفعلي ${actual} (الفرق ${diff}) - ${reason}`);
-    closeModal('invCountModal');
-    refreshAllViews();
-}
-
 async function saveWasteRecord() {
     const id = document.getElementById('wasteInvSelect').value;
     const qty = cleanNumber(document.getElementById('wasteQty').value);
@@ -2516,8 +3082,6 @@ async function saveWasteRecord() {
     if (!qty || qty <= 0) return alert('أدخل الكمية المهدرة');
 
     const item = await dbGet('inventory_items', id);
-    if (item.currentQuantity < qty) return alert(`الكمية المهدرة أكبر من المتوفر في المخزون (${item.currentQuantity} ${item.unit})`);
-
     item.currentQuantity = Number((item.currentQuantity - qty).toFixed(3));
     await dbPut('inventory_items', item);
     await dbPut('waste_records', {
@@ -2530,7 +3094,7 @@ async function saveWasteRecord() {
     refreshAllViews();
 }
 
-// ==================== التوصيل والعروض ====================
+// ==================== التوصيل والعروض والباقات ====================
 async function renderMarketing() {
     const freeThresh = (await dbGet('settings', 'free_delivery_threshold'))?.value ?? 1000;
     const defFee = (await dbGet('settings', 'default_delivery_fee'))?.value ?? 200;
@@ -2543,9 +3107,148 @@ async function renderMarketing() {
     `).join('');
 
     const offers = await dbGetAll('offers');
-    document.getElementById('offersTableBody').innerHTML = offers.map(o => `
-        <tr><td>${o.name}</td><td>${o.type === 'PERCENT' ? 'نسبة' : 'مبلغ'}</td><td>${o.value}</td><td>${o.isActive ? 'مفعل' : 'متوقف'}</td></tr>
-    `).join('');
+    const prods = await dbGetAll('products');
+    const prodMap = Object.fromEntries(prods.map(p => [p.id, p.name]));
+
+    document.getElementById('offersTableBody').innerHTML = offers.map(o => {
+        let desc = o.type === 'PERCENT' ? `خصم ${o.value}%` : (o.type === 'FIXED' ? `خصم ${o.value} ريال` : `اشترِ ${o.buyQty} (${prodMap[o.productId] || ''}) + ${o.freeQty} مجاناً`);
+        return `
+            <tr>
+                <td><strong>${o.name}</strong></td>
+                <td>${o.type === 'BOGO' ? 'اشترِ X+Y' : (o.type === 'PERCENT' ? 'نسبة %' : 'مبلغ ثابت')}</td>
+                <td>${desc}</td>
+                <td>${o.isActive ? 'مفعل' : 'متوقف'}</td>
+                <td><button class="btn btn-dark btn-sm" onclick="toggleOfferActive('${o.id}')">${o.isActive ? 'إيقاف' : 'تفعيل'}</button></td>
+            </tr>
+        `;
+    }).join('');
+
+    const bundles = await dbGetAll('bundles');
+    document.getElementById('bundlesTableBody').innerHTML = bundles.map(b => {
+        const compText = (b.items || []).map(it => `${prodMap[it.productId] || 'صنف'} ×${it.quantity}`).join(' + ');
+        return `
+            <tr>
+                <td><strong>${b.name}</strong></td>
+                <td>${compText}</td>
+                <td style="color:var(--gold)">${b.price} ريال</td>
+                <td>${b.isActive ? 'مفعل' : 'متوقف'}</td>
+                <td><button class="btn btn-dark btn-sm" onclick="toggleBundleActive('${b.id}')">${b.isActive ? 'إيقاف' : 'تفعيل'}</button></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function openOfferModal() {
+    const prods = (await dbGetAll('products')).filter(p => p.isActive);
+    document.getElementById('offerBogoProduct').innerHTML = prods.map(p => `<option value="${p.id}">${p.name} (${p.price} ريال)</option>`).join('');
+    document.getElementById('offerName').value = '';
+    document.getElementById('offerType').value = 'PERCENT';
+    toggleOfferTypeFields();
+    openModal('offerModal');
+}
+
+function toggleOfferTypeFields() {
+    const isBogo = document.getElementById('offerType').value === 'BOGO';
+    document.getElementById('offerStandardFields').style.display = isBogo ? 'none' : 'block';
+    document.getElementById('offerBogoFields').style.display = isBogo ? 'block' : 'none';
+}
+
+async function saveOffer() {
+    const name = document.getElementById('offerName').value.trim();
+    const type = document.getElementById('offerType').value;
+    if (!name) return alert('أدخل اسم العرض');
+
+    const obj = { id: uuid(), name, type, isActive: true };
+    if (type === 'BOGO') {
+        obj.productId = document.getElementById('offerBogoProduct').value;
+        obj.buyQty = cleanNumber(document.getElementById('offerBuyQty').value) || 2;
+        obj.freeQty = cleanNumber(document.getElementById('offerFreeQty').value) || 1;
+        if (!obj.productId) return alert('اختر الوجبة المشمولة بالعرض');
+    } else {
+        obj.value = cleanNumber(document.getElementById('offerVal').value);
+        obj.minOrder = cleanNumber(document.getElementById('offerMinOrder').value);
+    }
+
+    await dbPut('offers', obj);
+    closeModal('offerModal');
+    refreshAllViews();
+}
+
+async function toggleOfferActive(id) {
+    const o = await dbGet('offers', id);
+    o.isActive = !o.isActive;
+    await dbPut('offers', o);
+    refreshAllViews();
+}
+
+function openBundleModal() {
+    document.getElementById('bundleName').value = '';
+    document.getElementById('bundlePrice').value = '';
+    document.getElementById('bundleRowsContainer').innerHTML = '';
+    document.getElementById('bundleOrigTotalText').innerText = 'السعر الأصلي لمكونات الباقة: 0 ريال';
+    openModal('bundleModal');
+}
+
+async function addBundleItemRow() {
+    const prods = (await dbGetAll('products')).filter(p => p.isActive);
+    if (prods.length === 0) return alert('أضف المنتجات الفردية أولاً!');
+
+    const row = document.createElement('div');
+    row.className = 'grid-2 bundle-item-row';
+    row.style.alignItems = 'center';
+    row.innerHTML = `
+        <select class="b-prod" onchange="calcBundleOrigTotal()">
+            ${prods.map(p => `<option value="${p.id}" data-price="${p.price}" data-cost="${p.calculatedCost || 0}">${p.name} (${p.price} ر)</option>`).join('')}
+        </select>
+        <div style="display:flex; gap:6px;">
+            <input type="text" inputmode="numeric" class="b-qty" value="1" placeholder="الكمية" oninput="calcBundleOrigTotal()">
+            <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.bundle-item-row').remove(); calcBundleOrigTotal();">✕</button>
+        </div>
+    `;
+    document.getElementById('bundleRowsContainer').appendChild(row);
+    calcBundleOrigTotal();
+}
+
+function calcBundleOrigTotal() {
+    let origPrice = 0;
+    let origCost = 0;
+    document.querySelectorAll('.bundle-item-row').forEach(r => {
+        const sel = r.querySelector('.b-prod');
+        const opt = sel.options[sel.selectedIndex];
+        const qty = cleanNumber(r.querySelector('.b-qty').value);
+        origPrice += Number(opt?.dataset.price || 0) * qty;
+        origCost += Number(opt?.dataset.cost || 0) * qty;
+    });
+    document.getElementById('bundleOrigTotalText').innerText = `السعر الأصلي لمكونات الباقة: ${origPrice} ريال (التكلفة: ${origCost.toFixed(0)} ريال)`;
+    return { origPrice, origCost };
+}
+
+async function saveBundle() {
+    const name = document.getElementById('bundleName').value.trim();
+    const price = cleanNumber(document.getElementById('bundlePrice').value);
+    if (!name || price <= 0) return alert('أدخل اسم الباقة وسعر البيع');
+
+    const items = [];
+    document.querySelectorAll('.bundle-item-row').forEach(r => {
+        const productId = r.querySelector('.b-prod').value;
+        const quantity = cleanNumber(r.querySelector('.b-qty').value);
+        if (quantity > 0) items.push({ productId, quantity });
+    });
+    if (items.length === 0) return alert('أضف وجبة واحدة على الأقل داخل الباقة');
+
+    const calc = calcBundleOrigTotal();
+    await dbPut('bundles', {
+        id: uuid(), name, items, price, calculatedCost: Number(calc.origCost.toFixed(2)), isActive: true
+    });
+    closeModal('bundleModal');
+    refreshAllViews();
+}
+
+async function toggleBundleActive(id) {
+    const b = await dbGet('bundles', id);
+    b.isActive = !b.isActive;
+    await dbPut('bundles', b);
+    refreshAllViews();
 }
 
 async function saveDeliverySettings() {
@@ -2568,22 +3271,7 @@ async function saveZone() {
     refreshAllViews();
 }
 
-async function saveOffer() {
-    const name = document.getElementById('offerName').value.trim();
-    if (!name) return;
-    await dbPut('offers', {
-        id: uuid(), name,
-        type: document.getElementById('offerType').value,
-        value: cleanNumber(document.getElementById('offerVal').value),
-        minOrder: cleanNumber(document.getElementById('offerMinOrder').value),
-        isActive: true
-    });
-    document.getElementById('offerName').value = '';
-    closeModal('offerModal');
-    refreshAllViews();
-}
-
-// ==================== الموظفون وحساب المالك ====================
+// ==================== الموظفون والسلف وحساب المالك ====================
 async function updateOwnerCredentials() {
     if (currentUser.role !== 'OWNER') return;
     const newUsername = document.getElementById('ownerNewUsername').value.trim();
@@ -2639,13 +3327,26 @@ async function deleteEmployee(id) {
     refreshAllViews();
 }
 
-// ==================== الإحصائيات المتقدمة وكشف التلاعب والسرقة ====================
+// ==================== الإحصائيات المتقدمة وكشف التلاعب ====================
 async function renderAnalyticsAndAntiFraud() {
     const allInvoices = (await dbGetAll('invoices')).filter(i => !i.isCancelled);
     const allLogs = await dbGetAll('audit_logs');
     const allProds = await dbGetAll('products');
 
-    // 1. كشف التلاعب والسرقة
+    // مؤشرات إحصائية إضافية
+    const totalCount = allInvoices.length;
+    const totalRev = allInvoices.reduce((s, i) => s + i.totalAmount, 0);
+    const avgInvoice = totalCount > 0 ? Math.round(totalRev / totalCount) : 0;
+    const takeawayCount = allInvoices.filter(i => i.orderType === 'TAKEAWAY').length;
+    const deliveryCount = allInvoices.filter(i => i.orderType === 'DELIVERY').length;
+
+    document.getElementById('advancedStatsKpis').innerHTML = `
+        <div class="kpi"><span>إجمالي عدد الفواتير</span><strong>${totalCount} فاتورة</strong></div>
+        <div class="kpi"><span>متوسط قيمة الفاتورة</span><strong>${avgInvoice} ريال</strong></div>
+        <div class="kpi"><span>سفري / توصيل</span><strong>${takeawayCount} / ${deliveryCount}</strong></div>
+    `;
+
+    // كشف التلاعب والسرقة
     const suspiciousLogs = allLogs.filter(l =>
         ['CART_CLEARED_SUSPICIOUS', 'CART_ITEM_REDUCED', 'STAFF_DISCOUNT_APPLIED', 'CANCEL_INVOICE'].includes(l.action)
     ).sort((a, b) => b.timestamp - a.timestamp);
@@ -2665,7 +3366,7 @@ async function renderAnalyticsAndAntiFraud() {
         `).join('');
     }
 
-    // 2. الأكثر مبيعاً والأقل مبيعاً
+    // الأكثر مبيعاً والأقل مبيعاً
     const salesCount = {};
     allProds.forEach(p => salesCount[p.name] = 0);
     allInvoices.forEach(inv => {
@@ -2687,7 +3388,31 @@ async function renderAnalyticsAndAntiFraud() {
         </div>
     `).join('') || '<span style="color:var(--text-muted)">لا توجد بيانات</span>';
 
-    // 3. أكثر الأيام مبيعاً وربحاً
+    // أوقات الذروة (الساعات)
+    const hourMap = {};
+    allInvoices.forEach(inv => {
+        const hr = new Date(inv.createdAt).getHours();
+        const label = hr === 0 ? '12 ص' : (hr < 12 ? `${hr} ص` : (hr === 12 ? '12 م' : `${hr - 12} م`));
+        hourMap[label] = (hourMap[label] || 0) + inv.totalAmount;
+    });
+    const topHours = Object.entries(hourMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    document.getElementById('peakHoursList').innerHTML = topHours.map(([hr, val]) => `
+        <div style="display:flex; justify-content:space-between; background:var(--bg-card); padding:8px; border-radius:8px;">
+            <span>الساعة ${hr}</span><strong style="color:var(--gold)">${val} ريال</strong>
+        </div>
+    `).join('') || '<span style="color:var(--text-muted)">لا توجد بيانات</span>';
+
+    // توزيع طرق الدفع
+    const cashSum = allInvoices.filter(i => i.paymentMethod === 'CASH').reduce((s, i) => s + i.totalAmount, 0);
+    const walletSum = allInvoices.filter(i => i.paymentMethod === 'WALLET').reduce((s, i) => s + i.totalAmount, 0);
+    const creditSum = allInvoices.filter(i => i.paymentMethod === 'CREDIT').reduce((s, i) => s + i.totalAmount, 0);
+    document.getElementById('paymentBreakdownList').innerHTML = `
+        <div style="display:flex; justify-content:space-between; background:var(--bg-card); padding:8px; border-radius:8px;"><span>💵 نقدي (كاش)</span><strong style="color:var(--gold)">${cashSum} ريال</strong></div>
+        <div style="display:flex; justify-content:space-between; background:var(--bg-card); padding:8px; border-radius:8px;"><span>📱 محفظة إلكترونية</span><strong style="color:var(--info)">${walletSum} ريال</strong></div>
+        <div style="display:flex; justify-content:space-between; background:var(--bg-card); padding:8px; border-radius:8px;"><span>📒 بيع آجل (ديون)</span><strong style="color:var(--warning)">${creditSum} ريال</strong></div>
+    `;
+
+    // أكثر الأيام مبيعاً وربحاً
     const dayStats = {};
     allInvoices.forEach(inv => {
         const dKey = new Date(inv.createdAt).toLocaleDateString('ar-YE');
@@ -2720,17 +3445,6 @@ async function renderOwnerDashboard() {
     const now = Date.now();
     const startOfToday = new Date().setHours(0, 0, 0, 0);
 
-    // حساب الأيام الفعلية من تاريخ افتتاح المحل
-    const openDateStr = (await dbGet('settings', 'shop_opening_date'))?.value || new Date().toISOString().slice(0, 10);
-    const openTs = new Date(openDateStr + 'T00:00:00').getTime();
-    const daysSinceOpening = Math.max(1, Math.floor((now - openTs) / 86400000) + 1);
-
-    let effectiveDays = 1;
-    if (period === 'TODAY') effectiveDays = now >= openTs ? 1 : 0;
-    else if (period === 'WEEK') effectiveDays = Math.min(7, daysSinceOpening);
-    else if (period === 'MONTH') effectiveDays = Math.min(30, daysSinceOpening);
-    else if (period === 'ALL') effectiveDays = daysSinceOpening;
-
     const filterFn = ts => {
         if (period === 'TODAY') return ts >= startOfToday;
         if (period === 'WEEK') return ts >= now - 7 * 86400000;
@@ -2744,25 +3458,35 @@ async function renderOwnerDashboard() {
     const wastes = (await dbGetAll('waste_records')).filter(w => filterFn(w.timestamp));
     const fixedCosts = await dbGetAll('fixed_costs');
     const invItems = await dbGetAll('inventory_items');
+    const suppliers = await dbGetAll('suppliers');
+    const credCusts = await dbGetAll('credit_customers');
+    const ownerDraws = (await dbGetAll('owner_draws')).filter(d => filterFn(d.timestamp));
 
     const totalSales = invoices.reduce((s, i) => s + i.totalAmount, 0);
     const pendingTotal = pendingInvoices.reduce((s, i) => s + i.totalAmount, 0);
     const totalCOGS = invoices.reduce((s, i) => s + (i.totalCostSnapshot || 0), 0);
     const opExpenses = expenses.filter(e => e.category !== 'شراء مواد خام').reduce((s, e) => s + e.amount, 0);
     const totalWaste = wastes.reduce((s, w) => s + w.cost, 0);
+    const totalOwnerDraws = ownerDraws.reduce((s, d) => s + d.amount, 0);
+    const suppliersDebt = suppliers.reduce((s, sup) => s + (sup.balance || 0), 0);
+    const customersDebt = credCusts.reduce((s, c) => s + (c.balance || 0), 0);
 
-    const dailyFixedCost = fixedCosts.reduce((s, fc) => s + (fc.monthlyAmount / 30), 0);
-    const periodFixedCost = dailyFixedCost * effectiveDays;
+    // التكاليف الثابتة تُخصم نهاية الشهر فقط (عند اختيار "هذا الشهر" أو "الكل")
+    const monthlyFixedTotal = fixedCosts.reduce((s, fc) => s + fc.monthlyAmount, 0);
+    const appliedFixedCost = (period === 'MONTH' || period === 'ALL') ? monthlyFixedTotal : 0;
 
-    const netProfit = totalSales - totalCOGS - opExpenses - totalWaste - periodFixedCost;
+    const netProfit = totalSales - totalCOGS - opExpenses - totalWaste - appliedFixedCost;
 
     document.getElementById('ownerKpiGrid').innerHTML = `
         <div class="kpi"><span>المبيعات المحصّلة</span><strong>${totalSales} ريال</strong></div>
-        <div class="kpi"><span>توصيل معلق (لم يُحصّل)</span><strong style="color:var(--warning)">${pendingTotal} ريال</strong></div>
+        <div class="kpi"><span>ديون الزبائن والتوصيل</span><strong style="color:var(--warning)">${pendingTotal} ريال</strong></div>
         <div class="kpi"><span>تكلفة المكونات</span><strong>${totalCOGS.toFixed(0)} ريال</strong></div>
-        <div class="kpi"><span>المصروفات اليومية</span><strong style="color:var(--danger)">${opExpenses} ريال</strong></div>
-        <div class="kpi"><span>التكاليف الثابتة (${effectiveDays} يوم)</span><strong style="color:var(--warning)">${periodFixedCost.toFixed(0)} ريال</strong></div>
+        <div class="kpi"><span>المصروفات التشغيلية</span><strong style="color:var(--danger)">${opExpenses} ريال</strong></div>
+        <div class="kpi"><span>التكاليف الثابتة (نهاية الشهر)</span><strong style="color:var(--warning)">${appliedFixedCost.toFixed(0)} ريال</strong></div>
         <div class="kpi"><span>صافي الربح الحقيقي</span><strong style="color:${netProfit >= 0 ? 'var(--success)' : 'var(--danger)'}">${netProfit.toFixed(0)} ريال</strong></div>
+        <div class="kpi"><span>مستحقات الموردين (آجل)</span><strong style="color:var(--danger)">${suppliersDebt} ريال</strong></div>
+        <div class="kpi"><span>مسحوبات المالك</span><strong style="color:var(--bronze)">${totalOwnerDraws} ريال</strong></div>
+        <div class="kpi"><span>ديون الزبائن المعتمدين</span><strong style="color:var(--info)">${customersDebt} ريال</strong></div>
     `;
 
     const lowStock = invItems.filter(i => i.isActive && i.currentQuantity <= i.minThreshold);
@@ -2785,18 +3509,43 @@ async function renderOwnerDashboard() {
         <tr><td>${name}</td><td>${st.qty}</td><td>${st.rev}</td><td>${st.cost.toFixed(0)}</td><td style="color:var(--success)">${(st.rev - st.cost).toFixed(0)}</td></tr>
     `).join('');
 
+    // الموظفون والسلف المسحوبة
     const users = (await dbGetAll('users')).filter(u => u.role !== 'OWNER' && !u.isDeleted);
+    const advances = await dbGetAll('staff_advances');
     document.getElementById('usersTableBody').innerHTML = users.length === 0
-        ? `<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">لا يوجد موظفون مضافون حالياً</td></tr>`
-        : users.map(u => `
+        ? `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">لا يوجد موظفون مضافون حالياً</td></tr>`
+        : users.map(u => {
+            const empAdvTotal = advances.filter(a => a.staffId === u.id).reduce((s, a) => s + a.amount, 0);
+            return `
+                <tr>
+                    <td>${u.fullName}</td>
+                    <td>${u.username}</td>
+                    <td style="color:var(--warning); font-weight:700;">${empAdvTotal} ريال</td>
+                    <td>${u.isActive ? 'نشط' : 'معطل'}</td>
+                    <td style="display:flex; gap:6px;">
+                        <button class="btn btn-dark btn-sm" onclick="toggleUserActive('${u.id}')">${u.isActive ? 'تعطيل' : 'تفعيل'}</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteEmployee('${u.id}')">حذف</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+    // سجل سلف العمال ومسحوبات المالك
+    const allDrawsAndAdv = [
+        ...advances.map(a => ({ ts: a.timestamp, type: '👷 سلفة عامل', name: a.staffName, amount: a.amount, src: a.source, note: a.note })),
+        ...ownerDraws.map(d => ({ ts: d.timestamp, type: '👑 سحب مالك', name: d.userName, amount: d.amount, src: 'SHIFT_CASH', note: d.note }))
+    ].sort((a, b) => b.ts - a.ts);
+
+    document.getElementById('advancesAndDrawsTableBody').innerHTML = allDrawsAndAdv.length === 0
+        ? `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">لا توجد سلف أو مسحوبات مسجلة</td></tr>`
+        : allDrawsAndAdv.map(r => `
             <tr>
-                <td>${u.fullName}</td>
-                <td>${u.username}</td>
-                <td>${u.isActive ? 'نشط' : 'معطل'}</td>
-                <td style="display:flex; gap:6px;">
-                    <button class="btn btn-dark btn-sm" onclick="toggleUserActive('${u.id}')">${u.isActive ? 'تعطيل' : 'تفعيل'}</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteEmployee('${u.id}')">حذف</button>
-                </td>
+                <td>${new Date(r.ts).toLocaleDateString('ar-YE')}</td>
+                <td>${r.type}</td>
+                <td><strong>${r.name}</strong></td>
+                <td style="color:var(--gold)">${r.amount} ريال</td>
+                <td>${r.src === 'SHIFT_CASH' ? '💵 الصندوق' : (r.src === 'WALLET' ? '📱 المحفظة' : '👑 المالك')}</td>
+                <td>${r.note}</td>
             </tr>
         `).join('');
 
@@ -2858,6 +3607,7 @@ async function refreshAllViews() {
     await renderOperations();
     if (currentUser?.role === 'OWNER') {
         await renderProductsManage();
+        await renderSuppliers();
         await renderFixedCosts();
         await renderExpenseCategories();
         await renderMarketing();
