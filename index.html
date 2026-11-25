@@ -29,11 +29,15 @@
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-tap-highlight-color: transparent; }
-        html, body {
-            background-color: var(--bg-black); color: var(--white); min-height: 100vh;
-            width: 100%; max-width: 100vw; overflow-x: hidden; padding-bottom: 84px;
-            overscroll-behavior-y: contain;
+                html {
+            overscroll-behavior-y: none;
         }
+        body {
+            background-color: var(--bg-black); color: var(--white); min-height: 100vh;
+            width: 100%; max-width: 100vw; overflow-x: hidden; overflow-y: auto;
+            padding-bottom: 84px; touch-action: pan-x pan-y;
+        }
+
 
         .btn {
             border: none; border-radius: var(--radius); padding: 12px 14px; font-size: 14px; font-weight: 700;
