@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trend-pos-clean-v3';
+const CACHE_NAME = 'trend-pos-clean-v4';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -18,14 +18,16 @@ self.addEventListener('fetch', e => {
   if (e.request.url.includes('firestore.googleapis.com') || e.request.url.includes('gstatic.com')) {
     return;
   }
-  // يجلب من الإنترنت أولاً لتحديث الواجهة فوراً، وإذا انقطع النت يفتح من الكاش
   e.respondWith(
-    fetch(e.request)
-      .then(res => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(e.request, copy));
+    caches.match(e.request).then(cached => {
+      const networkFetch = fetch(e.request).then(res => {
+        if (res && res.status === 200) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(e.request, copy));
+        }
         return res;
-      })
-      .catch(() => caches.match(e.request))
+      }).catch(() => cached);
+      return cached || networkFetch;
+    })
   );
 });
